@@ -443,6 +443,17 @@ tr:hover td{background:rgba(57,255,154,.03);}
 .force-mobile .open-pos-row { grid-template-columns: 48px 1fr 65px 90px !important; }
 .force-mobile .open-pos-row .op-alloc { display: none !important; }
 
+
+.sync-bar{display:flex;align-items:center;gap:8px;padding:9px 14px;background:linear-gradient(135deg,rgba(123,140,255,.07),rgba(57,255,154,.04));border-bottom:0.5px solid var(--b2);flex-wrap:wrap}
+.sync-status{font-size:10px;display:flex;align-items:center;gap:5px;margin-left:auto}
+.sync-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.sync-dot.ok{background:var(--accent);box-shadow:0 0 6px var(--accent)}
+.sync-dot.warn{background:var(--amber)}
+.sync-dot.err{background:var(--red)}
+.sync-dot.spin{background:var(--blue);animation:neonPulse .8s infinite}
+.sync-provider-chip{padding:4px 10px;border-radius:4px;font-size:9px;cursor:pointer;border:0.5px solid var(--b2);background:var(--s2);color:var(--muted2);transition:all .15s;display:inline-block}
+.sync-provider-chip.active{background:rgba(57,255,154,.1);border-color:rgba(57,255,154,.3);color:var(--accent)}
+
 </style>
 </head>
 <body>
@@ -492,6 +503,13 @@ tr:hover td{background:rgba(57,255,154,.03);}
 
 <!-- ═══ MAIN ═══ -->
 <main class="main">
+<div class="sync-bar" id="sync-bar" style="display:none">
+  <span style="font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted)">Cloud sync</span>
+  <button class="btn sec sm" onclick="cloudSync('push')">&#8593; Push</button>
+  <button class="btn sec sm" onclick="cloudSync('pull')">&#8595; Pull</button>
+  <button class="btn sec sm" onclick="cloudSync('auto')">&#8635; Sync</button>
+  <div class="sync-status"><div class="sync-dot warn" id="sync-dot"></div><span id="sync-msg" style="color:var(--muted)">Not configured</span></div>
+</div>
 
 <!-- DASHBOARD -->
 <div class="page active" id="page-dashboard">
@@ -2193,6 +2211,504 @@ setTimeout(function(){
   }
 },200);
 
+
+
+
+/* ═══════════════════════════════════════════════════════════
+   ACCOUNT SYSTEM
+   Each account = separate portfolios + trades + targets + notes
+   Stored under scoped localStorage keys: td_ports_ACCID etc.
+   API keys are shared across all accounts.
+═══════════════════════════════════════════════════════════ */
+var _accounts = [];
+var _activeAccountId = null;
+var _editAccountId = null;
+var _afSelColor = PAL[0];
+
+function _loadAccounts() {
+  try {
+    _accounts = JSON.parse(localStorage.getItem('td_accounts') || '[]');
+    _activeAccountId = localStorage.getItem('td_active_account') || null;
+  } catch(e) { _accounts = []; }
+
+  if (!_accounts.length) {
+    // First run — migrate existing flat data into "Default Account"
+    var defId = 'acc_' + Date.now();
+    _accounts = [{ id: defId, name: 'Default Account', desc: 'Primary trading account', cash: 10000, color: '#39ff9a', created: Date.now() }];
+    _activeAccountId = defId;
+    // Copy existing flat data under the account key (so seed data is preserved)
+    var flat_p  = localStorage.getItem('td_ports');
+    var flat_t  = localStorage.getItem('td_trades');
+    var flat_tg = localStorage.getItem('td_targets');
+    var flat_n  = localStorage.getItem('td_notes');
+    if (flat_p)  localStorage.setItem('td_ports_'  + defId, flat_p);
+    if (flat_t)  localStorage.setItem('td_trades_' + defId, flat_t);
+    if (flat_tg) localStorage.setItem('td_targets_'+ defId, flat_tg);
+    if (flat_n)  localStorage.setItem('td_notes_'  + defId, flat_n);
+    _saveAccountsMeta();
+  }
+  if (!_activeAccountId || !_accounts.find(function(a){return a.id===_activeAccountId;})) {
+    _activeAccountId = _accounts[0].id;
+  }
+}
+
+function _saveAccountsMeta() {
+  localStorage.setItem('td_accounts', JSON.stringify(_accounts));
+  localStorage.setItem('td_active_account', _activeAccountId);
+}
+
+function _activeAccountObj() {
+  return _accounts.find(function(a){return a.id===_activeAccountId;}) || _accounts[0];
+}
+
+function _loadAccountData() {
+  var id = _activeAccountId;
+  if (!id) return;
+  try {
+    var p  = localStorage.getItem('td_ports_'   + id);
+    var t  = localStorage.getItem('td_trades_'  + id);
+    var tg = localStorage.getItem('td_targets_' + id);
+    portfolios = p  ? JSON.parse(p)  : [];
+    trades     = t  ? JSON.parse(t)  : [];
+    targets    = tg ? JSON.parse(tg) : { profit:500, loss:200, maxTrades:5, minRR:2 };
+  } catch(e) {}
+  if (!portfolios.length) {
+    portfolios = [{ id: uid(), name: 'Main', desc: 'Main portfolio', color: '#39ff9a' }];
+    _saveAccountData();
+  }
+  if (!activePortId || !portfolios.find(function(p){return p.id===activePortId;})) {
+    activePortId = portfolios[0].id;
+  }
+  try { notes = JSON.parse(localStorage.getItem('td_notes_' + id) || '[]'); } catch(e) { notes = []; }
+}
+
+function _saveAccountData() {
+  var id = _activeAccountId; if (!id) return;
+  localStorage.setItem('td_ports_'   + id, JSON.stringify(portfolios));
+  localStorage.setItem('td_trades_'  + id, JSON.stringify(trades));
+  localStorage.setItem('td_targets_' + id, JSON.stringify(targets));
+}
+
+// Override save() to use account-scoped keys
+var _origSave = save;
+save = function() { _saveAccountData(); };
+
+// Override loadNotes / saveNotes
+loadNotes = function() {
+  try { notes = JSON.parse(localStorage.getItem('td_notes_' + _activeAccountId) || '[]'); } catch(e) { notes = []; }
+};
+saveNotes = function() {
+  try { localStorage.setItem('td_notes_' + _activeAccountId, JSON.stringify(notes)); } catch(e) {}
+};
+
+// ── Render account selector in sidebar ──────────────────────
+function renderAccountSelector() {
+  var acc = _activeAccountObj(); if (!acc) return;
+  var nameEl = document.getElementById('acc-name');
+  var dotEl  = document.getElementById('acc-dot');
+  if (nameEl) nameEl.textContent = acc.name;
+  if (dotEl)  { dotEl.style.background = acc.color; dotEl.style.color = acc.color; }
+  var listEl = document.getElementById('acc-menu-list');
+  if (listEl) {
+    listEl.innerHTML = _accounts.map(function(a) {
+      return '<div class="acc-menu-item' + (a.id===_activeAccountId?' active':'') + '" onclick="switchAccount(\'' + a.id + '\')">' +
+        '<div class="acc-dot" style="background:' + a.color + ';width:7px;height:7px;border-radius:50%;flex-shrink:0"></div>' +
+        '<div style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + a.name + '</div>' +
+        (a.id===_activeAccountId ? '<span style="font-size:9px;color:var(--accent)">●</span>' : '') +
+      '</div>';
+    }).join('');
+  }
+}
+
+function toggleAccMenu(e) {
+  e && e.stopPropagation();
+  var menu = document.getElementById('acc-menu');
+  if (menu) menu.classList.toggle('open');
+}
+
+document.addEventListener('click', function(e) {
+  var menu = document.getElementById('acc-menu');
+  if (menu && !e.target.closest('.acc-dropdown')) menu.classList.remove('open');
+});
+
+function switchAccount(id) {
+  if (id === _activeAccountId) { var m=document.getElementById('acc-menu'); if(m)m.classList.remove('open'); return; }
+  _activeAccountId = id;
+  _saveAccountsMeta();
+  _loadAccountData();
+  var m = document.getElementById('acc-menu'); if(m)m.classList.remove('open');
+  renderAccountSelector();
+  renderAll();
+  setTimeout(refreshOpenPositions, 400);
+}
+
+// ── Account Modal ────────────────────────────────────────────
+function openAccountModal(editId) {
+  _editAccountId = editId || null;
+  var a = editId ? _accounts.find(function(x){return x.id===editId;}) : null;
+  var titleEl = document.getElementById('am-title');
+  if (titleEl) titleEl.textContent = a ? 'Edit account' : 'New account';
+  var nameEl = document.getElementById('af-name'); if (nameEl) nameEl.value = a ? a.name : '';
+  var descEl = document.getElementById('af-desc'); if (descEl) descEl.value = a ? (a.desc||'') : '';
+  var cashEl = document.getElementById('af-cash'); if (cashEl) cashEl.value = a ? a.cash : 10000;
+  _afSelColor = a ? a.color : PAL[_accounts.length % PAL.length];
+  var cpEl = document.getElementById('af-cp');
+  if (cpEl) cpEl.innerHTML = PAL.map(function(c) {
+    return '<div class="cs' + (c===_afSelColor?' sel':'') + '" style="background:' + c + ';width:19px;height:19px;border-radius:50%;cursor:pointer;border:2px solid ' + (c===_afSelColor?'white':'transparent') + '" onclick="pickAccColor(\'' + c + '\')"></div>';
+  }).join('');
+  var delBtn = document.getElementById('am-del-btn');
+  if (delBtn) delBtn.style.display = (a && _accounts.length > 1) ? 'block' : 'none';
+  var modal = document.getElementById('account-modal');
+  if (modal) modal.classList.add('open');
+  var menu = document.getElementById('acc-menu'); if(menu) menu.classList.remove('open');
+}
+
+function closeAccountModal() {
+  var modal = document.getElementById('account-modal');
+  if (modal) modal.classList.remove('open');
+}
+
+function pickAccColor(c) {
+  _afSelColor = c;
+  document.querySelectorAll('#af-cp .cs').forEach(function(s) {
+    s.style.border = (s.style.background===c || s.style.backgroundColor===c) ? '2px solid white' : '2px solid transparent';
+  });
+}
+
+function saveAccount() {
+  var nameEl = document.getElementById('af-name');
+  var name = nameEl ? nameEl.value.trim() : '';
+  if (!name) { alert('Account name is required.'); return; }
+  var desc = (document.getElementById('af-desc')||{}).value || '';
+  var cash = parseFloat((document.getElementById('af-cash')||{value:10000}).value) || 10000;
+
+  if (_editAccountId) {
+    var a = _accounts.find(function(x){return x.id===_editAccountId;});
+    if (a) { a.name=name; a.desc=desc; a.cash=cash; a.color=_afSelColor; }
+  } else {
+    var newId = 'acc_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
+    _accounts.push({ id:newId, name:name, desc:desc, cash:cash, color:_afSelColor, created:Date.now() });
+    _activeAccountId = newId;
+    portfolios=[]; trades=[]; targets={profit:500,loss:200,maxTrades:5,minRR:2}; notes=[];
+    _loadAccountData(); // creates default portfolio
+  }
+  _saveAccountsMeta();
+  closeAccountModal();
+  renderAccountSelector();
+  renderAll();
+}
+
+function deleteAccount() {
+  if (!_editAccountId || _accounts.length <= 1) return;
+  var a = _accounts.find(function(x){return x.id===_editAccountId;});
+  if (!a || !confirm('Delete account "'+a.name+'" and ALL its data? This cannot be undone.')) return;
+  ['td_ports_','td_trades_','td_targets_','td_notes_'].forEach(function(k) {
+    localStorage.removeItem(k + _editAccountId);
+  });
+  _accounts = _accounts.filter(function(x){return x.id!==_editAccountId;});
+  if (_activeAccountId === _editAccountId) _activeAccountId = _accounts[0].id;
+  _saveAccountsMeta();
+  _loadAccountData();
+  closeAccountModal();
+  renderAccountSelector();
+  renderAll();
+}
+
+function openAccountSettings() {
+  var menu = document.getElementById('acc-menu'); if(menu) menu.classList.remove('open');
+  var modal = document.getElementById('accounts-settings-modal');
+  var list  = document.getElementById('accounts-list');
+  if (list) {
+    list.innerHTML = _accounts.map(function(a) {
+      var tCount = 0;
+      try { tCount = JSON.parse(localStorage.getItem('td_trades_'+a.id)||'[]').length; } catch(e){}
+      return '<div style="display:flex;align-items:center;justify-content:space-between;padding:11px 13px;background:var(--s2);border:0.5px solid var(--b2);border-radius:7px;margin-bottom:7px">' +
+        '<div style="display:flex;align-items:center;gap:10px">' +
+          '<div style="width:10px;height:10px;border-radius:50%;background:'+a.color+';flex-shrink:0"></div>' +
+          '<div>' +
+            '<div style="font-size:12px;font-weight:500">' + a.name + (a.id===_activeAccountId?' <span style="color:var(--accent);font-size:9px">● active</span>':'') + '</div>' +
+            '<div style="font-size:9px;color:var(--muted);margin-top:2px">' + tCount + ' trades · €'+a.cash.toLocaleString()+' starting cash' + (a.desc?' · '+a.desc:'') + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:6px">' +
+          (a.id!==_activeAccountId ? '<button class="btn sec sm" onclick="switchAccount(\''+a.id+'\');closeAccountSettings()">Switch</button>' : '') +
+          '<button class="btn sec sm" onclick="openAccountModal(\''+a.id+'\');closeAccountSettings()">Edit</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  }
+  if (modal) modal.classList.add('open');
+}
+
+function closeAccountSettings() {
+  var modal = document.getElementById('accounts-settings-modal');
+  if (modal) modal.classList.remove('open');
+}
+
+// Close modals on backdrop click
+(function() {
+  var am = document.getElementById('account-modal');
+  if (am) am.addEventListener('click', function(e){if(e.target===am)closeAccountModal();});
+  var as = document.getElementById('accounts-settings-modal');
+  if (as) as.addEventListener('click', function(e){if(e.target===as)closeAccountSettings();});
+})();
+
+/* ═══════════════════════════════════════════════════════════
+   GITHUB GIST SYNC
+   Saves all account data as a single private Gist JSON.
+   Same Gist = same data on every device.
+═══════════════════════════════════════════════════════════ */
+
+function _getSyncConfig() {
+  return {
+    provider: localStorage.getItem('td_sync_provider') || 'none',
+    gistToken: localStorage.getItem('td_sync_gist_token') || '',
+    gistId:    localStorage.getItem('td_sync_gist_id')    || '',
+    jsonbinKey:localStorage.getItem('td_sync_jsonbin_key')|| '',
+    jsonbinId: localStorage.getItem('td_sync_jsonbin_id') || '',
+  };
+}
+
+function selectSyncProvider(prov) {
+  ['gist','jsonbin','none'].forEach(function(p) {
+    var el = document.getElementById('sp-'+p);
+    if (el) el.classList.toggle('active', p===prov);
+  });
+  ['gist','jsonbin','none'].forEach(function(p) {
+    var sec = document.getElementById('sync-'+p+'-section');
+    if (sec) sec.style.display = p===prov ? 'block' : 'none';
+  });
+}
+
+function loadSyncSettingsUI() {
+  var cfg = _getSyncConfig();
+  selectSyncProvider(cfg.provider);
+  var fields = {
+    'sync-gist-token': cfg.gistToken,
+    'sync-gist-id':    cfg.gistId,
+    'sync-jsonbin-key':cfg.jsonbinKey,
+    'sync-jsonbin-id': cfg.jsonbinId,
+  };
+  Object.keys(fields).forEach(function(id) {
+    var el = document.getElementById(id); if (el) el.value = fields[id];
+  });
+  _updateSyncBar();
+}
+
+function saveSyncSettings() {
+  var cfg = _getSyncConfig();
+  // Detect which provider is active
+  var prov = 'none';
+  ['gist','jsonbin','none'].forEach(function(p){
+    var el=document.getElementById('sp-'+p); if(el&&el.classList.contains('active'))prov=p;
+  });
+  localStorage.setItem('td_sync_provider', prov);
+  var gistToken=(document.getElementById('sync-gist-token')||{}).value||'';
+  var gistId   =(document.getElementById('sync-gist-id')||{}).value||'';
+  var jbKey    =(document.getElementById('sync-jsonbin-key')||{}).value||'';
+  var jbId     =(document.getElementById('sync-jsonbin-id')||{}).value||'';
+  if(gistToken)localStorage.setItem('td_sync_gist_token',gistToken);
+  if(gistId)   localStorage.setItem('td_sync_gist_id',   gistId);
+  if(jbKey)    localStorage.setItem('td_sync_jsonbin_key',jbKey);
+  if(jbId)     localStorage.setItem('td_sync_jsonbin_id', jbId);
+  _updateSyncBar();
+  var st=document.getElementById('sync-settings-status');
+  if(st)st.innerHTML='<span style="color:var(--muted)">Testing connection…</span>';
+  cloudSync('test').then(function(){
+    if(st)st.innerHTML='<span style="color:var(--teal)">✓ Connected</span>';
+  }).catch(function(e){
+    if(st)st.innerHTML='<span style="color:var(--red)">✗ '+e.message+'</span>';
+  });
+}
+
+function _updateSyncBar() {
+  var cfg = _getSyncConfig();
+  var bar = document.getElementById('sync-bar');
+  var dot = document.getElementById('sync-dot');
+  var msg = document.getElementById('sync-msg');
+  if (!bar) return;
+  if (cfg.provider === 'none' || (!cfg.gistToken && !cfg.jsonbinKey)) {
+    bar.style.display = 'none';
+  } else {
+    bar.style.display = 'flex';
+    if (dot) { dot.className='sync-dot warn'; }
+    if (msg) msg.textContent = cfg.provider==='gist' ? 'GitHub Gist — not synced yet' : 'JSONBin — not synced yet';
+  }
+}
+
+function _allData() {
+  // Collect everything from all accounts
+  var data = { version: 2, savedAt: Date.now(), accounts: _accounts, activeAccountId: _activeAccountId, accountData: {} };
+  _accounts.forEach(function(a) {
+    data.accountData[a.id] = {
+      ports:   JSON.parse(localStorage.getItem('td_ports_'+a.id)   || '[]'),
+      trades:  JSON.parse(localStorage.getItem('td_trades_'+a.id)  || '[]'),
+      targets: JSON.parse(localStorage.getItem('td_targets_'+a.id) || '{}'),
+      notes:   JSON.parse(localStorage.getItem('td_notes_'+a.id)   || '[]'),
+    };
+  });
+  return data;
+}
+
+function _restoreData(data) {
+  if (!data || !data.accounts) throw new Error('Invalid data format');
+  _accounts = data.accounts;
+  _activeAccountId = data.activeAccountId || _accounts[0].id;
+  _saveAccountsMeta();
+  if (data.accountData) {
+    _accounts.forEach(function(a) {
+      var d = data.accountData[a.id];
+      if (!d) return;
+      if (d.ports)   localStorage.setItem('td_ports_'+a.id,   JSON.stringify(d.ports));
+      if (d.trades)  localStorage.setItem('td_trades_'+a.id,  JSON.stringify(d.trades));
+      if (d.targets) localStorage.setItem('td_targets_'+a.id, JSON.stringify(d.targets));
+      if (d.notes)   localStorage.setItem('td_notes_'+a.id,   JSON.stringify(d.notes));
+    });
+  }
+  _loadAccountData();
+}
+
+function _setSyncStatus(state, text) {
+  var dot=document.getElementById('sync-dot'); var msg=document.getElementById('sync-msg');
+  if(dot)dot.className='sync-dot '+state; if(msg)msg.textContent=text;
+}
+
+async function cloudSync(action) {
+  var cfg = _getSyncConfig();
+  if (cfg.provider === 'none') { alert('Configure cloud sync in Settings first.'); return; }
+
+  if (cfg.provider === 'gist') {
+    return await _gistSync(action, cfg);
+  } else if (cfg.provider === 'jsonbin') {
+    return await _jsonbinSync(action, cfg);
+  }
+}
+
+// ── GitHub Gist ──────────────────────────────────────────────
+async function _gistSync(action, cfg) {
+  if (!cfg.gistToken) throw new Error('No GitHub token — add in Settings');
+  _setSyncStatus('spin', 'Syncing…');
+
+  var headers = { 'Authorization': 'Bearer ' + cfg.gistToken, 'Content-Type': 'application/json', 'X-GitHub-Api-Version': '2022-11-28' };
+
+  if (action === 'test') {
+    var r = await fetch('https://api.github.com/user', { headers: headers, signal: AbortSignal.timeout(8000) });
+    if (!r.ok) throw new Error('GitHub auth failed — check your token');
+    var u = await r.json();
+    _setSyncStatus('ok', 'Connected as ' + (u.login || 'user'));
+    return;
+  }
+
+  // Get existing gist if we have an ID
+  var existingData = null;
+  var existingSavedAt = 0;
+  if (cfg.gistId) {
+    try {
+      var gr = await fetch('https://api.github.com/gists/' + cfg.gistId, { headers: headers, signal: AbortSignal.timeout(8000) });
+      if (gr.ok) {
+        var gj = await gr.json();
+        var content = gj.files && gj.files['tradedesk.json'] && gj.files['tradedesk.json'].content;
+        if (content) { existingData = JSON.parse(content); existingSavedAt = existingData.savedAt || 0; }
+      }
+    } catch(e) {}
+  }
+
+  var localData = _allData();
+  var localSavedAt = localData.savedAt;
+
+  if (action === 'test') { _setSyncStatus('ok', 'Connected'); return; }
+
+  if (action === 'pull' || (action === 'auto' && existingSavedAt > localSavedAt)) {
+    if (!existingData) { _setSyncStatus('warn','No cloud data yet — push first'); return; }
+    _restoreData(existingData);
+    _setSyncStatus('ok', 'Pulled · ' + new Date(existingData.savedAt).toLocaleTimeString());
+    renderAccountSelector(); renderAll();
+    return;
+  }
+
+  // Push
+  var payload = JSON.stringify({ 'tradedesk.json': { content: JSON.stringify(localData) } });
+
+  if (cfg.gistId) {
+    var pr = await fetch('https://api.github.com/gists/' + cfg.gistId, { method: 'PATCH', headers: headers, body: payload, signal: AbortSignal.timeout(10000) });
+    if (!pr.ok) { var e=await pr.json(); throw new Error(e.message||'Push failed'); }
+    _setSyncStatus('ok', 'Pushed · ' + new Date().toLocaleTimeString());
+  } else {
+    // Create new gist
+    var cr = await fetch('https://api.github.com/gists', {
+      method: 'POST', headers: headers, signal: AbortSignal.timeout(10000),
+      body: JSON.stringify({ description: 'TradeDesk Pro — trading data', public: false, files: { 'tradedesk.json': { content: JSON.stringify(localData) } } })
+    });
+    if (!cr.ok) { var e2=await cr.json(); throw new Error(e2.message||'Create gist failed'); }
+    var cj = await cr.json();
+    localStorage.setItem('td_sync_gist_id', cj.id);
+    var gistIdEl = document.getElementById('sync-gist-id'); if(gistIdEl)gistIdEl.value=cj.id;
+    var linkEl = document.getElementById('sync-gist-link');
+    if(linkEl)linkEl.innerHTML='Gist created: <strong style="color:var(--accent);user-select:all">' + cj.id + '</strong> — copy this ID and paste it on your other devices';
+    _setSyncStatus('ok', 'New Gist created · ' + new Date().toLocaleTimeString());
+  }
+}
+
+// ── JSONBin ──────────────────────────────────────────────────
+async function _jsonbinSync(action, cfg) {
+  if (!cfg.jsonbinKey) throw new Error('No JSONBin key — add in Settings');
+  _setSyncStatus('spin', 'Syncing…');
+  var headers = { 'Content-Type': 'application/json', 'X-Master-Key': cfg.jsonbinKey };
+
+  if (action === 'test') {
+    var r = await fetch('https://api.jsonbin.io/v3/b', { method: 'GET', headers: headers, signal: AbortSignal.timeout(8000) });
+    if (!r.ok) throw new Error('JSONBin auth failed — check your key');
+    _setSyncStatus('ok','JSONBin connected'); return;
+  }
+
+  if (action === 'pull') {
+    if (!cfg.jsonbinId) { _setSyncStatus('warn','No Bin ID — push first'); return; }
+    var pr = await fetch('https://api.jsonbin.io/v3/b/' + cfg.jsonbinId + '/latest', { headers: headers, signal: AbortSignal.timeout(8000) });
+    if (!pr.ok) throw new Error('Pull failed');
+    var pj = await pr.json();
+    _restoreData(pj.record);
+    _setSyncStatus('ok','Pulled · '+new Date().toLocaleTimeString());
+    renderAccountSelector(); renderAll(); return;
+  }
+
+  // Push
+  var localData = _allData();
+  if (cfg.jsonbinId) {
+    var ur = await fetch('https://api.jsonbin.io/v3/b/' + cfg.jsonbinId, { method: 'PUT', headers: headers, body: JSON.stringify(localData), signal: AbortSignal.timeout(10000) });
+    if (!ur.ok) throw new Error('Update failed');
+    _setSyncStatus('ok','Pushed · '+new Date().toLocaleTimeString());
+  } else {
+    var cr = await fetch('https://api.jsonbin.io/v3/b', { method: 'POST', headers: Object.assign({},headers,{'X-Bin-Name':'tradedesk','X-Bin-Private':'true'}), body: JSON.stringify(localData), signal: AbortSignal.timeout(10000) });
+    if (!cr.ok) throw new Error('Create bin failed');
+    var cj = await cr.json();
+    localStorage.setItem('td_sync_jsonbin_id', cj.metadata.id);
+    var el=document.getElementById('sync-jsonbin-id'); if(el)el.value=cj.metadata.id;
+    var linkEl=document.getElementById('sync-gist-link'); if(linkEl)linkEl.innerHTML='Bin ID: <strong style="color:var(--accent);user-select:all">'+cj.metadata.id+'</strong> — paste on other devices';
+    _setSyncStatus('ok','Bin created · '+new Date().toLocaleTimeString());
+  }
+}
+
+/* ── Wire settings page to load sync UI ── */
+var _origLoadSettingsUI = typeof loadSettingsUI === 'function' ? loadSettingsUI : function(){};
+loadSettingsUI = function() {
+  _origLoadSettingsUI();
+  loadSyncSettingsUI();
+};
+
+/* ── Init accounts on page load ── */
+(function() {
+  _loadAccounts();
+  _loadAccountData();
+  renderAccountSelector();
+  _updateSyncBar();
+  // Auto-pull on load if configured
+  var cfg = _getSyncConfig();
+  if (cfg.provider !== 'none' && (cfg.gistToken || cfg.jsonbinKey)) {
+    setTimeout(function() {
+      cloudSync('auto').catch(function(){});
+    }, 1500);
+  }
+})();
 
 </script>
 
