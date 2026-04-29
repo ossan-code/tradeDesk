@@ -949,6 +949,58 @@ tr:hover td{background:rgba(57,255,154,.03);}
     </div>
     <div id="settings-test-response"></div>
   </div>
+
+  <!-- ☁ CLOUD SYNC -->
+  <div class="box">
+    <div class="box-t">&#9729; Cloud sync &mdash; same data on every device</div>
+    <div style="font-size:10px;color:var(--muted2);line-height:1.75;margin-bottom:13px">
+      Sync all accounts, trades, portfolios and notes across phone, tablet and desktop using a free cloud backend. Your API keys are <strong style="color:var(--text)">never synced</strong> &mdash; they stay local on each device.
+    </div>
+
+    <div style="display:flex;gap:7px;margin-bottom:13px;flex-wrap:wrap">
+      <div class="sync-provider-chip active" id="sp-gist"    onclick="selectSyncProvider('gist')">GitHub Gist &mdash; recommended</div>
+      <div class="sync-provider-chip"        id="sp-jsonbin" onclick="selectSyncProvider('jsonbin')">JSONBin.io</div>
+      <div class="sync-provider-chip"        id="sp-none"    onclick="selectSyncProvider('none')">No sync (local only)</div>
+    </div>
+
+    <div id="sync-gist-section">
+      <div style="background:var(--s2);border:0.5px solid var(--b1);border-radius:6px;padding:12px;margin-bottom:11px;font-size:10px;color:var(--muted2);line-height:1.8">
+        <strong style="color:var(--accent)">How to get a free GitHub token (2 min):</strong><br>
+        1. Go to <strong style="color:var(--text)">github.com</strong> &rarr; Sign in (or create free account)<br>
+        2. Click profile photo &rarr; <strong style="color:var(--text)">Settings</strong> &rarr; <strong style="color:var(--text)">Developer settings</strong> (bottom of left sidebar)<br>
+        3. <strong style="color:var(--text)">Personal access tokens</strong> &rarr; <strong style="color:var(--text)">Tokens (classic)</strong> &rarr; <strong style="color:var(--text)">Generate new token</strong><br>
+        4. Name it <em>TradeDesk</em>, set expiry to <strong style="color:var(--text)">No expiration</strong>, tick only the <strong style="color:var(--accent)">gist</strong> scope<br>
+        5. Click <strong style="color:var(--text)">Generate token</strong> &rarr; copy the <code style="background:var(--s3);padding:1px 5px;border-radius:3px">ghp_...</code> token and paste below
+      </div>
+      <div class="fg"><label>GitHub Personal Access Token</label><input type="password" id="sync-gist-token" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" autocomplete="off"></div>
+      <div class="fg"><label>Gist ID <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">(leave blank on first device &mdash; auto-created)</span></label><input type="text" id="sync-gist-id" placeholder="Paste here on 2nd, 3rd device&hellip;" autocomplete="off"></div>
+    </div>
+
+    <div id="sync-jsonbin-section" style="display:none">
+      <div style="background:var(--s2);border:0.5px solid var(--b1);border-radius:6px;padding:12px;margin-bottom:11px;font-size:10px;color:var(--muted2);line-height:1.8">
+        <strong style="color:var(--accent)">Setup JSONBin:</strong><br>
+        1. Go to <strong style="color:var(--text)">jsonbin.io</strong> &rarr; create free account<br>
+        2. Go to <strong style="color:var(--text)">API Keys</strong> &rarr; <strong style="color:var(--text)">Create Access Key</strong><br>
+        3. Paste the key below &mdash; a Bin is created automatically on first push
+      </div>
+      <div class="fg"><label>JSONBin Access Key</label><input type="password" id="sync-jsonbin-key" placeholder="$2a$10$xxxx..." autocomplete="off"></div>
+      <div class="fg"><label>Bin ID <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">(auto-created on first push)</span></label><input type="text" id="sync-jsonbin-id" placeholder="Paste on other devices" autocomplete="off"></div>
+    </div>
+
+    <div id="sync-none-section" style="display:none">
+      <div style="font-size:10px;color:var(--muted);line-height:1.6;padding:6px 0">
+        Data stays in this browser only. Use <strong style="color:var(--muted2)">Export CSV</strong> in Analytics to manually transfer trades.
+      </div>
+    </div>
+
+    <div style="display:flex;gap:7px;align-items:center;margin-top:6px;flex-wrap:wrap">
+      <button class="btn" onclick="saveSyncSettings()">Save &amp; connect</button>
+      <button class="btn sec sm" onclick="cloudSync('push')">&#8593; Push now</button>
+      <button class="btn sec sm" onclick="cloudSync('pull')">&#8595; Pull now</button>
+      <span id="sync-settings-status" style="font-size:10px;color:var(--muted);margin-left:4px"></span>
+    </div>
+    <div id="sync-gist-link" style="margin-top:9px;font-size:10px;color:var(--muted);line-height:1.7"></div>
+  </div>
 </div>
 
 <!-- NOTES -->
