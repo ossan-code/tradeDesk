@@ -3412,7 +3412,7 @@ findStrategyOpportunities = async function() {
     if (i1 === -1) throw new Error('AI returned no setups — check your AI key in Settings');
     var opps = JSON.parse(clean.slice(i1, i2+1));
     list.innerHTML = list.innerHTML.split('Analyzing screener')[0] +
-      '<div style="font-size:9px;color:var(--muted);margin-bottom:8px">AI matched ' + opps.length + ' setups from ' + stocks.length + ' screener results · ' + new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})</s> + '</div>' +
+      '<div style="font-size:9px;color:var(--muted);margin-bottom:8px">AI matched ' + opps.length + ' setups from ' + stocks.length + ' screener results · ' + new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) + '</div>' +
       opps.map(function(o) {
         var cc = o.confidence==='A'?'var(--accent)':o.confidence==='B'?'var(--amber)':'var(--muted2)';
         return '<div style="background:var(--s2);border:0.5px solid var(--b2);border-radius:7px;padding:11px 14px;margin-bottom:7px">' +
