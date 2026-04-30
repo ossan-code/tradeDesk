@@ -481,6 +481,10 @@ tr:hover td{background:rgba(57,255,154,.03);}
   .port-dot { width: 6px !important; height: 6px !important; }
 }
 
+
+/* Currency badge */
+.curr-badge{display:inline-block;padding:1px 5px;border-radius:3px;font-size:9px;background:rgba(123,140,255,.15);color:var(--blue);margin-left:4px;font-weight:500}
+
 </style>
 </head>
 <body>
@@ -559,13 +563,13 @@ tr:hover td{background:rgba(57,255,154,.03);}
 <div class="page" id="page-trades">
   <div class="ph">
     <div><div class="pt">Trade <em>Log</em></div><div class="ps" id="trades-sub"></div></div>
-    <div style="display:flex;gap:7px">
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
       <select id="filter-strat" onchange="renderTrades()" style="background:var(--s2);border:0.5px solid var(--b2);border-radius:5px;padding:5px 9px;color:var(--text);font-family:var(--mono);font-size:10px;outline:none">
         <option value="">All strategies</option>
         <option>9 EMA</option><option>Breakout</option><option>Momentum</option>
         <option>Reversal</option><option>Gap &amp; Go</option><option>VWAP</option><option>Other</option>
       </select>
-      <button class="btn" onclick="openTradeModal()">+ New trade</button>
+      <button class="btn sec sm" id="bulk-mode-btn" onclick="toggleBulkMode()">&#9745; Select</button><button class="btn danger" id="bulk-del-btn" onclick="bulkDeleteTrades()" style="display:none;background:rgba(255,77,109,.15);color:var(--red);border:0.5px solid rgba(255,77,109,.3)">&#10005; Delete selected</button><button class="btn" onclick="openTradeModal()">+ New trade</button><button class="btn sec sm" onclick="exportAllTrades()">&#8595; CSV</button>
     </div>
   </div>
   <div class="tw" id="trades-table"></div>
@@ -640,9 +644,9 @@ tr:hover td{background:rgba(57,255,154,.03);}
 <!-- SCREENER -->
 <div class="page" id="page-screener">
   <div class="ph">
-    <div><div class="pt">Stock <em>Screener</em></div><div class="ps">Real-time quotes via Yahoo Finance · filter by price, volume, market cap, change and sector</div></div>
+    <div><div class="pt">Stock <em>Screener</em></div><div class="ps">Live quotes via Alpaca or Yahoo Finance · simulated if both are blocked · filter by price, volume, market cap and sector</div></div>
     <div style="display:flex;gap:6px">
-      <button class="btn sec sm" onclick="findStrategyOpportunities()">✦ AI: Find opportunities</button>
+      <button class="btn sec sm" onclick="findStrategyOpportunities()" title="AI analyzes screener results and matches stocks to your strategies with entry/stop/target suggestions">✦ AI: Find setups</button>
       <button class="btn" onclick="runScreener()">Run screener</button>
     </div>
   </div>
@@ -692,7 +696,7 @@ tr:hover td{background:rgba(57,255,154,.03);}
 <!-- BACKTEST (TradingView-style) -->
 <div class="page" id="page-backtest">
   <div class="ph">
-    <div><div class="pt">Chart <em>Backtest</em></div><div class="ps">TradingView-style chart with indicators · interactive long/short trading</div></div>
+    <div><div class="pt">Chart <em>Backtest</em></div><div class="ps">Interactive backtest chart with indicators · click to place long/short trades · live TradingView chart view available</div></div>
     <button class="btn sec sm" onclick="exportChartTrades()">↓ Export trades</button>
   </div>
 
@@ -727,6 +731,21 @@ tr:hover td{background:rgba(57,255,154,.03);}
       <span class="ind-chip" onclick="toggleIndicator('bb')" data-ind="bb">Bollinger</span>
       <span class="ind-chip" onclick="toggleIndicator('volume')" data-ind="volume">Volume</span>
       <span class="ind-chip" onclick="toggleIndicator('rsi')" data-ind="rsi">RSI</span>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:6px;margin-bottom:8px;align-items:center">
+    <span style="font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted)">Chart view:</span>
+    <span class="ind-chip active" id="bt-view-canvas" onclick="switchBtView('canvas')">Interactive backtest</span>
+    <span class="ind-chip" id="bt-view-tv" onclick="switchBtView('tv')">TradingView live chart</span>
+    <span style="font-size:9px;color:var(--muted);margin-left:6px" id="bt-view-note">← Click candles to place trades</span>
+  </div>
+
+  <!-- TradingView Widget (shown when TV view is active) -->
+  <div id="bt-tv-wrap" style="display:none;margin-bottom:10px;border-radius:8px;overflow:hidden;border:0.5px solid var(--b2)">
+    <div id="bt-tv-inner" style="height:500px;"></div>
+    <div style="padding:8px 12px;background:var(--s2);font-size:9px;color:var(--muted)">
+      ℹ TradingView live chart — for analysis only. Use <strong style="color:var(--accent)">Interactive backtest</strong> tab to practice trades on simulated/Alpaca data.
     </div>
   </div>
 
@@ -967,6 +986,45 @@ tr:hover td{background:rgba(57,255,154,.03);}
       <span id="ai-key-status" style="font-size:10px;color:var(--muted);margin-left:6px"></span>
     </div>
   </div>
+  <div class="box">
+    <div class="box-t">💱 Currency settings</div>
+    <div style="font-size:10px;color:var(--muted2);line-height:1.7;margin-bottom:12px">
+      Set your main display currency. All P&L totals, cash balances and portfolio values are shown in this currency. Individual trades can be recorded in any currency — conversion uses the exchange rate you enter per trade (or auto-fetched from Alpaca if keys are set).
+    </div>
+    <div class="frow" style="margin-bottom:10px">
+      <div class="fg">
+        <label>Main / display currency</label>
+        <select id="main-currency" style="width:100%;background:var(--s2);border:0.5px solid var(--b2);border-radius:5px;padding:7px 10px;color:var(--text);font-family:var(--mono);font-size:11px;outline:none" onchange="saveMainCurrency()">
+          <option value="USD">USD — US Dollar ($)</option>
+          <option value="EUR">EUR — Euro (€)</option>
+          <option value="GBP">GBP — British Pound (£)</option>
+          <option value="TRY">TRY — Turkish Lira (₺)</option>
+          <option value="CHF">CHF — Swiss Franc (Fr)</option>
+          <option value="JPY">JPY — Japanese Yen (¥)</option>
+          <option value="CAD">CAD — Canadian Dollar (CA$)</option>
+          <option value="AUD">AUD — Australian Dollar (A$)</option>
+        </select>
+      </div>
+      <div class="fg">
+        <label>Currency symbol shown in app</label>
+        <div id="curr-preview" style="padding:8px 10px;background:var(--s3);border-radius:5px;font-size:13px;font-weight:500;color:var(--accent)">$</div>
+      </div>
+    </div>
+    <div style="font-size:10px;color:var(--muted2);line-height:1.7;margin-bottom:10px">
+      <strong style="color:var(--text)">Exchange rates</strong> — enter rates vs USD (1 USD = X of your currency). Used when converting multi-currency trades.
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">
+      <div class="fg"><label>EUR/USD rate</label><input type="number" id="rate-EUR" step="0.001" placeholder="e.g. 0.92"></div>
+      <div class="fg"><label>GBP/USD rate</label><input type="number" id="rate-GBP" step="0.001" placeholder="e.g. 0.79"></div>
+      <div class="fg"><label>TRY/USD rate</label><input type="number" id="rate-TRY" step="0.001" placeholder="e.g. 32.5"></div>
+    </div>
+    <div style="display:flex;gap:7px;align-items:center">
+      <button class="btn sec sm" onclick="fetchAlpacaRates()">⟳ Fetch rates from Alpaca</button>
+      <button class="btn" onclick="saveCurrencySettings()">Save</button>
+      <span id="rate-status" style="font-size:10px;color:var(--muted);margin-left:4px"></span>
+    </div>
+  </div>
+
   <div class="box">
     <div class="box-t">Quick AI test</div>
     <div style="font-size:10px;color:var(--muted2);margin-bottom:9px">Ask anything to verify your AI connection is working:</div>
@@ -1541,20 +1599,111 @@ function renderImportPort(){
   sel.innerHTML=portfolios.map(p=>`<option value="${p.id}"${p.id===activePortId?' selected':''}>${p.name}</option>`).join('');
 }
 function runImport(){
-  const raw=document.getElementById('import-csv').value.trim();
-  const portId=document.getElementById('import-port').value;
-  if(!raw){document.getElementById('import-fb').innerHTML='<span style="color:var(--red)">Please paste CSV data first.</span>';return;}
-  const lines=raw.split('\n').filter(l=>l.trim());let hdr=null,imported=0,errors=0;
-  lines.forEach(line=>{
-    const parts=line.split(',').map(s=>s.trim().replace(/^"|"$/g,''));
-    if(!hdr&&(parts[0].toLowerCase().includes('date')||isNaN(parseFloat(parts[0])))){hdr=parts;return;}
-    const[date,ticker,type,qty,price,strategy='',sector='',notes='']=parts;
-    if(!date||!ticker||!type||!qty||!price){errors++;return;}
-    trades.push({id:uid(),portId,ticker:ticker.toUpperCase(),type:type.toLowerCase(),qty:parseFloat(qty),price:parseFloat(price),date,strategy,sector,notes,session:'',emotion:''});
-    imported++;
+  var raw = (document.getElementById('import-csv')||{}).value || '';
+  raw = raw.trim();
+  var portId = (document.getElementById('import-port')||{}).value || '';
+  var fb = document.getElementById('import-fb');
+  if(!raw){if(fb)fb.innerHTML='<span style="color:var(--red)">Please paste CSV data first.</span>';return;}
+
+  // Parse CSV respecting quoted fields
+  function parseCSVLine(line) {
+    var result = [], cur = '', inQ = false;
+    for (var i = 0; i < line.length; i++) {
+      var c = line[i];
+      if (c === '"') { inQ = !inQ; }
+      else if (c === ',' && !inQ) { result.push(cur.trim()); cur = ''; }
+      else cur += c;
+    }
+    result.push(cur.trim());
+    return result;
+  }
+
+  var lines = raw.split('\n').filter(function(l){return l.trim();});
+  var hdr = null, imported = 0, errors = 0, skipped = 0;
+  var format = 'generic'; // will detect
+
+  lines.forEach(function(line) {
+    var parts = parseCSVLine(line);
+    // Detect header row
+    if (!hdr) {
+      var lower = parts.map(function(p){return p.toLowerCase();});
+      if (lower[0] === 'action' && lower[1] === 'time' && lower.includes('ticker')) {
+        format = 'trading212';
+        hdr = parts;
+        return;
+      }
+      if (isNaN(parseFloat(parts[0])) || lower.includes('date') || lower.includes('ticker') || lower.includes('symbol')) {
+        format = 'generic';
+        hdr = parts;
+        return;
+      }
+    }
+
+    var tradeData = null;
+
+    if (format === 'trading212' && hdr) {
+      // Trading 212 format:
+      // Action,Time,ISIN,Ticker,Name,ID,No. of shares,Price / share,
+      // Currency (Price / share),Exchange rate,Gross Total,Currency (Gross Total)
+      var hdrLow = hdr.map(function(h){return h.toLowerCase();});
+      function col(name) {
+        var idx = hdrLow.indexOf(name.toLowerCase());
+        return idx >= 0 ? parts[idx] : '';
+      }
+      var action = col('action').toLowerCase();
+      if (!action.includes('buy') && !action.includes('sell')) { skipped++; return; }
+      var type = action.includes('buy') ? 'buy' : 'sell';
+      var ticker = col('ticker').replace(/"/g,'').trim().toUpperCase();
+      var qty = parseFloat(col('no. of shares'));
+      var price = parseFloat(col('price / share'));
+      var currency = col('currency (price / share)') || 'USD';
+      var exRate = parseFloat(col('exchange rate')) || 1;
+      var timeStr = col('time');
+      var date = timeStr ? timeStr.slice(0,10) : new Date().toISOString().slice(0,10);
+      var grossTotal = parseFloat(col('gross total')) || (qty * price);
+
+      if (!ticker || isNaN(qty) || isNaN(price)) { errors++; return; }
+
+      // Convert price to main currency (USD) if exchange rate provided
+      // Trading212 gives price in stock currency; exchange rate is usually 1 for USD stocks
+      var priceUSD = price; // store as-is; currency recorded separately
+
+      tradeData = {
+        id: uid(), portId: portId,
+        ticker: ticker, type: type,
+        qty: qty, price: priceUSD,
+        date: date,
+        currency: currency,
+        exchangeRate: exRate,
+        grossTotal: grossTotal,
+        strategy: '', session: '', sector: '', emotion: '', sl: null, tp: null,
+        notes: 'Imported from Trading 212'
+      };
+    } else {
+      // Generic format: date,ticker,type,qty,price[,strategy,sector,notes,currency]
+      if (parts.length < 4) { errors++; return; }
+      var date2 = parts[0], ticker2 = parts[1], type2 = parts[2];
+      var qty2 = parseFloat(parts[3]), price2 = parseFloat(parts[4]);
+      if (!date2 || !ticker2 || !qty2 || isNaN(price2)) { errors++; return; }
+      tradeData = {
+        id: uid(), portId: portId,
+        ticker: ticker2.toUpperCase().replace(/"/g,''),
+        type: type2.toLowerCase().includes('buy') ? 'buy' : 'sell',
+        qty: qty2, price: price2,
+        date: date2.slice(0,10),
+        currency: parts[8] || 'USD',
+        strategy: parts[5] || '', sector: parts[6] || '',
+        notes: parts[7] || '', session: '', emotion: '', sl: null, tp: null
+      };
+    }
+
+    if (tradeData) { trades.push(tradeData); imported++; }
   });
-  save();renderAll();
-  document.getElementById('import-fb').innerHTML=`<span style="color:var(--teal)">✓ Imported ${imported} trade${imported!==1?'s':''}.</span>${errors?` <span style="color:var(--red)">${errors} row${errors!==1?'s':''} skipped (missing fields).</span>`:''}`;
+
+  save(); renderAll();
+  if(fb)fb.innerHTML = '<span style="color:var(--teal)">✓ Imported ' + imported + ' trades (' + format + ' format).</span>' +
+    (errors  ? ' <span style="color:var(--red)">' + errors  + ' rows had errors.</span>' : '') +
+    (skipped ? ' <span style="color:var(--muted)">' + skipped + ' non-trade rows skipped.</span>' : '');
 }
 
 /* ─── AI COACH ─── */
@@ -2202,9 +2351,26 @@ async function runScreener() {
   });
   status.innerHTML=(liveOk?'<span style="color:var(--teal)">✓ Live data</span>':'<span style="color:var(--amber)">Simulated</span>')+' · '+filtered.length+' results';
   if(!filtered.length){list.innerHTML='<div style="text-align:center;padding:22px;color:var(--muted)">No stocks match your filters.</div>';return;}
-  list.innerHTML=filtered.map(function(q){
-    var chg=q.regularMarketChangePercent||0,sec=SC_SMAP[q.symbol]||'—';
-    return '<div class="stock-card"><div><div style="font-size:13px;font-weight:500;margin-bottom:2px">'+q.symbol+'</div><div style="font-size:9px;color:var(--muted)">'+(q.shortName||SC_NMAP[q.symbol]||q.symbol)+'</div><div style="display:flex;gap:10px;font-size:9px;color:var(--muted);margin-top:4px"><span>'+sec+'</span><span>Vol: '+fn(q.regularMarketVolume||0)+'</span><span>Cap: '+(q.marketCap?fn(q.marketCap):'—')+'</span></div></div><div style="text-align:right"><div style="font-size:13px;font-weight:500">$'+(q.regularMarketPrice||0).toFixed(2)+'</div><div style="font-size:10px;color:'+(chg>=0?'var(--accent)':'var(--red)');var html2 = '">'+(chg>=0?'+':'')+chg.toFixed(2)+'%</div></div></div>'; return '<div class="stock-card"><div><div style="font-size:13px;font-weight:500;margin-bottom:2px">'+q.symbol+'</div><div style="font-size:9px;color:var(--muted)">'+(q.shortName||SC_NMAP[q.symbol]||q.symbol)+'</div><div style="display:flex;gap:10px;font-size:9px;color:var(--muted);margin-top:4px"><span>'+sec+'</span><span>Vol: '+fn(q.regularMarketVolume||0)+'</span><span>Cap: '+(q.marketCap?fn(q.marketCap):'—')+'</span></div></div><div style="text-align:right"><div style="font-size:13px;font-weight:500">$'+(q.regularMarketPrice||0).toFixed(2)+'</div><div style="font-size:10px;color:'+(chg>=0?'var(--accent)':'var(--red)')+'">'+(chg>=0?'+':'')+chg.toFixed(2)+'%</div></div></div>';
+  list.innerHTML = filtered.map(function(q) {
+    var chg = q.regularMarketChangePercent || 0;
+    var sec = SC_SMAP[q.symbol] || '—';
+    var chgCol = chg >= 0 ? 'var(--accent)' : 'var(--red)';
+    var chgStr = (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%';
+    return '<div class="stock-card">' +
+      '<div>' +
+        '<div style="font-size:13px;font-weight:600;color:var(--text)">' + q.symbol + '</div>' +
+        '<div style="font-size:10px;color:var(--muted2);margin-top:1px">' + (q.shortName || SC_NMAP[q.symbol] || q.symbol) + '</div>' +
+        '<div style="display:flex;gap:10px;font-size:9px;color:var(--muted);margin-top:5px">' +
+          '<span>' + sec + '</span>' +
+          '<span>Vol: ' + fn(q.regularMarketVolume || 0) + '</span>' +
+          '<span>Cap: ' + (q.marketCap ? fn(q.marketCap) : '—') + '</span>' +
+        '</div>' +
+      '</div>' +
+      '<div style="text-align:right;flex-shrink:0">' +
+        '<div style="font-size:15px;font-weight:600">$' + (q.regularMarketPrice || 0).toFixed(2) + '</div>' +
+        '<div style="font-size:11px;font-weight:500;color:' + chgCol + ';margin-top:2px">' + chgStr + '</div>' +
+      '</div>' +
+    '</div>';
   }).join('');
 }
 
@@ -2952,6 +3118,325 @@ function closeCashModal() {
   var cm = document.getElementById('cash-modal');
   if (cm) cm.addEventListener('click', function(e){ if(e.target===cm) closeCashModal(); });
 })();
+
+
+
+/* ═══════════════════════════════════════════════════════════
+   CURRENCY SYSTEM
+═══════════════════════════════════════════════════════════ */
+var CURRENCY_SYMBOLS = {USD:'$', EUR:'€', GBP:'£', TRY:'₺', CHF:'Fr', JPY:'¥', CAD:'CA$', AUD:'A$'};
+var CURRENCY_RATES   = {USD:1, EUR:0.92, GBP:0.79, TRY:32.5, CHF:0.90, JPY:149.5, CAD:1.36, AUD:1.55};
+
+function getMainCurrency() { return localStorage.getItem('td_main_currency') || 'USD'; }
+function getCurrencySymbol() { return CURRENCY_SYMBOLS[getMainCurrency()] || '$'; }
+function loadCurrencyRates() {
+  var saved = {};
+  try { saved = JSON.parse(localStorage.getItem('td_currency_rates') || '{}'); } catch(e) {}
+  Object.assign(CURRENCY_RATES, saved);
+}
+function toMainCurrency(amount, fromCurrency) {
+  if (!fromCurrency || fromCurrency === getMainCurrency()) return amount;
+  var mainC = getMainCurrency();
+  var fromRate = CURRENCY_RATES[fromCurrency] || 1;  // from → USD
+  var toRate   = CURRENCY_RATES[mainC] || 1;          // USD → main
+  // amount in fromCurrency → USD → mainCurrency
+  var amtUSD = fromCurrency === 'USD' ? amount : amount / fromRate;
+  return mainC === 'USD' ? amtUSD : amtUSD * toRate;
+}
+
+function saveMainCurrency() {
+  var sel = document.getElementById('main-currency');
+  if (!sel) return;
+  var c = sel.value;
+  localStorage.setItem('td_main_currency', c);
+  var sym = CURRENCY_SYMBOLS[c] || '$';
+  var prev = document.getElementById('curr-preview');
+  if (prev) prev.textContent = sym + '1,234.56';
+}
+function saveCurrencySettings() {
+  var cur = (document.getElementById('main-currency')||{}).value || 'USD';
+  localStorage.setItem('td_main_currency', cur);
+  ['EUR','GBP','TRY'].forEach(function(c) {
+    var el = document.getElementById('rate-'+c);
+    var v  = parseFloat((el||{}).value);
+    if (!isNaN(v) && v > 0) { CURRENCY_RATES[c] = v; }
+  });
+  localStorage.setItem('td_currency_rates', JSON.stringify(CURRENCY_RATES));
+  var st = document.getElementById('rate-status');
+  if (st) st.innerHTML = '<span style="color:var(--teal)">✓ Saved</span>';
+}
+async function fetchAlpacaRates() {
+  var st = document.getElementById('rate-status');
+  var key = localStorage.getItem('alp_key') || '';
+  var sec = localStorage.getItem('alp_secret') || '';
+  if (!key || !sec) { if(st)st.innerHTML='<span style="color:var(--amber)">Add Alpaca keys first</span>'; return; }
+  if (st) st.innerHTML = '<span style="color:var(--muted)">Fetching…</span>';
+  var pairs = ['EUR/USD','GBP/USD','TRY/USD'];
+  var fetched = 0;
+  for (var i = 0; i < pairs.length; i++) {
+    var pair = pairs[i];
+    try {
+      var r = await fetch('https://data.alpaca.markets/v1beta3/forex/latest?symbols=' + pair, {
+        headers: {'APCA-API-KEY-ID': key, 'APCA-API-SECRET-KEY': sec},
+        signal: AbortSignal.timeout(6000)
+      });
+      if (r.ok) {
+        var d = await r.json();
+        var rates = d.rates || d.data || {};
+        var pairData = rates[pair] || rates[pair.replace('/','')];
+        if (pairData) {
+          var curr = pair.split('/')[0];
+          var rate = pairData.ap || pairData.ask || pairData.mid || pairData.c;
+          if (rate) {
+            CURRENCY_RATES[curr] = 1 / parseFloat(rate); // rates are USD per unit, we store units per USD
+            var el = document.getElementById('rate-'+curr);
+            if (el) el.value = CURRENCY_RATES[curr].toFixed(4);
+            fetched++;
+          }
+        }
+      }
+    } catch(e) {}
+  }
+  if (st) st.innerHTML = fetched > 0
+    ? '<span style="color:var(--teal)">✓ Fetched ' + fetched + ' rates</span>'
+    : '<span style="color:var(--amber)">Could not fetch rates — enter manually</span>';
+}
+function loadCurrencySettingsUI() {
+  loadCurrencyRates();
+  var mainC = getMainCurrency();
+  var sel = document.getElementById('main-currency');
+  if (sel) sel.value = mainC;
+  var prev = document.getElementById('curr-preview');
+  if (prev) prev.textContent = (CURRENCY_SYMBOLS[mainC]||'$') + '1,234.56';
+  ['EUR','GBP','TRY'].forEach(function(c) {
+    var el = document.getElementById('rate-'+c);
+    if (el && CURRENCY_RATES[c]) el.value = CURRENCY_RATES[c].toFixed(4);
+  });
+}
+
+// Override fmt/fmtC to use main currency symbol
+var _origFmt = fmt;
+var _origFmtC = fmtC;
+function fmtCurr(n, d) {
+  var sym = getCurrencySymbol();
+  d = d !== undefined ? d : 2;
+  return sym + Math.abs(n).toLocaleString('en-US', {minimumFractionDigits:d, maximumFractionDigits:d});
+}
+function fmtCurrSigned(n, d) {
+  return (n >= 0 ? '+' : '-') + fmtCurr(n, d);
+}
+
+// Patch settings loader
+var _origLoadSettingsUI2 = typeof loadSettingsUI === 'function' ? loadSettingsUI : function(){};
+loadSettingsUI = function() {
+  _origLoadSettingsUI2();
+  loadCurrencySettingsUI();
+};
+
+/* ═══════════════════════════════════════════════════════════
+   BULK DELETE TRADES
+═══════════════════════════════════════════════════════════ */
+var _bulkMode = false;
+var _selectedTradeIds = new Set();
+
+function toggleBulkMode() {
+  _bulkMode = !_bulkMode;
+  _selectedTradeIds.clear();
+  var btn = document.getElementById('bulk-mode-btn');
+  var delBtn = document.getElementById('bulk-del-btn');
+  if (btn) btn.innerHTML = _bulkMode ? '✕ Cancel' : '&#9745; Select';
+  if (delBtn) delBtn.style.display = 'none';
+  renderTrades();
+}
+
+function toggleTradeSelect(id) {
+  if (_selectedTradeIds.has(id)) _selectedTradeIds.delete(id);
+  else _selectedTradeIds.add(id);
+  var delBtn = document.getElementById('bulk-del-btn');
+  if (delBtn) {
+    delBtn.style.display = _selectedTradeIds.size > 0 ? 'block' : 'none';
+    delBtn.innerHTML = '&#10005; Delete ' + _selectedTradeIds.size + ' selected';
+  }
+  // Update checkbox visual
+  var cb = document.getElementById('cb_' + id);
+  if (cb) cb.checked = _selectedTradeIds.has(id);
+}
+
+function bulkDeleteTrades() {
+  if (!_selectedTradeIds.size) return;
+  var ids = Array.from(_selectedTradeIds);
+  var tickers = ids.map(function(id){var t=trades.find(function(x){return x.id===id;});return t?t.ticker:'';}).filter(Boolean);
+  if (!confirm('Delete ' + ids.length + ' selected trades?\n' + tickers.slice(0,10).join(', ') + (tickers.length>10?'…':''))) return;
+  trades = trades.filter(function(t){return !_selectedTradeIds.has(t.id);});
+  _selectedTradeIds.clear();
+  _bulkMode = false;
+  var btn = document.getElementById('bulk-mode-btn'); if (btn) btn.innerHTML = '&#9745; Select';
+  var delBtn = document.getElementById('bulk-del-btn'); if (delBtn) delBtn.style.display = 'none';
+  save(); renderAll(); setTimeout(refreshOpenPositions, 300);
+}
+
+// Override renderTrades to support bulk mode checkboxes
+var _origRenderTradesBulk = renderTrades;
+renderTrades = function() {
+  var p = activePort(); if (!p) return;
+  var sf = (document.getElementById('filter-strat') || {value: ''}).value;
+  var pt = portTrades(p.id).slice().reverse().filter(function(t) { return !sf || t.strategy === sf; });
+  var subEl = document.getElementById('trades-sub');
+  if (subEl) subEl.textContent = p.name + ' · ' + pt.length + ' trade' + (pt.length !== 1 ? 's' : '');
+  var tblEl = document.getElementById('trades-table');
+  if (!tblEl) return;
+  if (!pt.length) {
+    tblEl.innerHTML = '<div style="text-align:center;padding:32px;color:var(--muted)">No trades found. <button class="btn" style="margin-top:10px" onclick="openTradeModal()">+ Record first trade</button></div>';
+    return;
+  }
+  var sym = getCurrencySymbol();
+  tblEl.innerHTML = '<table style="min-width:' + (_bulkMode ? '950px' : '900px') + '"><thead><tr>' +
+    (_bulkMode ? '<th><input type="checkbox" onchange="(function(cb){var pt2=document.querySelectorAll(\'[id^=cb_]\');pt2.forEach(function(c){c.checked=cb.checked;var id=c.id.replace(\'cb_\',\'\');if(cb.checked)_selectedTradeIds.add(id);else _selectedTradeIds.delete(id);});var db=document.getElementById(\'bulk-del-btn\');if(db){db.style.display=_selectedTradeIds.size>0?\'block\':\'none\';db.innerHTML=\'&#10005; Delete \'+_selectedTradeIds.size+\' selected\';}})(this)"></th>' : '') +
+    '<th>Date</th><th>Ticker</th><th>Type</th><th>Strategy</th><th>Session</th>' +
+    '<th>Emotion</th><th>Qty</th><th>Price</th><th>Curr</th><th>SL</th><th>TP</th><th>Notes</th>' +
+    '<th style="text-align:right">Actions</th></tr></thead><tbody>' +
+    pt.map(function(t) {
+      var tradeCurr = t.currency || getMainCurrency();
+      var currLabel = tradeCurr !== getMainCurrency() ? '<span class="curr-badge">' + tradeCurr + '</span>' : '';
+      return '<tr' + (_bulkMode && _selectedTradeIds.has(t.id) ? ' style="background:rgba(57,255,154,.05)"' : '') + '>' +
+        (_bulkMode ? '<td><input type="checkbox" id="cb_' + t.id + '"' + (_selectedTradeIds.has(t.id) ? ' checked' : '') + ' onchange="toggleTradeSelect(\'' + t.id + '\')"></td>' : '') +
+        '<td style="color:var(--muted)">' + t.date + '</td>' +
+        '<td style="font-weight:600">' + t.ticker + '</td>' +
+        '<td><span class="badge ' + t.type + '">' + t.type.toUpperCase() + '</span></td>' +
+        '<td><span class="tag strat">' + (t.strategy || '—') + '</span></td>' +
+        '<td><span class="tag sess">' + (t.session || '—') + '</span></td>' +
+        '<td style="color:' + (t.emotion==='Revenge'||t.emotion==='FOMO'?'var(--red)':'var(--muted2)') + '">' + (t.emotion || '—') + '</td>' +
+        '<td>' + fmt(t.qty, 2) + '</td>' +
+        '<td>' + sym + fmt(t.price) + currLabel + '</td>' +
+        '<td style="font-size:9px;color:var(--muted)">' + tradeCurr + '</td>' +
+        '<td style="color:var(--red)">' + (t.sl ? sym + fmt(t.sl) : '—') + '</td>' +
+        '<td style="color:var(--teal)">' + (t.tp ? sym + fmt(t.tp) : '—') + '</td>' +
+        '<td style="color:var(--muted);max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (t.notes || '—') + '</td>' +
+        '<td style="text-align:right;white-space:nowrap">' +
+          '<button style="background:var(--s3);border:0.5px solid var(--b2);color:var(--muted2);padding:3px 7px;border-radius:3px;font-size:9px;cursor:pointer;font-family:var(--mono);margin-right:2px" ' +
+          'onmouseover="this.style.color=\'var(--accent)\';this.style.borderColor=\'var(--accent)\'" ' +
+          'onmouseout="this.style.color=\'var(--muted2)\';this.style.borderColor=\'var(--b2)\'" ' +
+          'onclick="event.stopPropagation();openTradeModalEdit(\'' + t.id + '\')">✎</button>' +
+          '<button style="background:var(--s3);border:0.5px solid var(--b2);color:var(--muted2);padding:3px 7px;border-radius:3px;font-size:9px;cursor:pointer;font-family:var(--mono)" ' +
+          'onmouseover="this.style.color=\'var(--red)\';this.style.borderColor=\'var(--red)\'" ' +
+          'onmouseout="this.style.color=\'var(--muted2)\';this.style.borderColor=\'var(--b2)\'" ' +
+          'onclick="event.stopPropagation();quickDeleteTrade(\'' + t.id + '\')">✕</button>' +
+        '</td></tr>';
+    }).join('') + '</tbody></table>';
+};
+
+/* ═══════════════════════════════════════════════════════════
+   TRADINGVIEW WIDGET INTEGRATION (Free — no API key needed)
+═══════════════════════════════════════════════════════════ */
+var _btView = 'canvas'; // 'canvas' or 'tv'
+
+function switchBtView(view) {
+  _btView = view;
+  var canvasWrap = document.getElementById('bt-chart-wrap');
+  var tvWrap     = document.getElementById('bt-tv-wrap');
+  var toolbar    = document.querySelector('.bt-toolbar');
+  var stats      = document.getElementById('bt-stats');
+  var log        = document.getElementById('bt-trade-log');
+  var instr      = document.getElementById('bt-instructions');
+  var note       = document.getElementById('bt-view-note');
+
+  document.getElementById('bt-view-canvas').classList.toggle('active', view === 'canvas');
+  document.getElementById('bt-view-tv').classList.toggle('active', view === 'tv');
+
+  if (view === 'tv') {
+    if (canvasWrap) canvasWrap.style.display = 'none';
+    if (toolbar)    toolbar.style.display    = 'none';
+    if (stats)      stats.style.display      = 'none';
+    if (instr)      instr.style.display      = 'none';
+    if (tvWrap)     tvWrap.style.display     = 'block';
+    if (note)       note.textContent         = '← Live chart for analysis';
+    _loadTVWidget();
+  } else {
+    if (canvasWrap) canvasWrap.style.display = 'block';
+    if (toolbar)    toolbar.style.display    = 'flex';
+    if (stats)      stats.style.display      = 'grid';
+    if (instr)      instr.style.display      = 'block';
+    if (tvWrap)     tvWrap.style.display     = 'none';
+    if (note)       note.textContent         = '← Click candles to place trades';
+  }
+}
+
+function _loadTVWidget() {
+  var inner = document.getElementById('bt-tv-inner');
+  if (!inner) return;
+  var sym = (document.getElementById('bt-symbol') || {value: 'AAPL'}).value || 'AAPL';
+  // TradingView free embeddable widget — no API key needed
+  inner.innerHTML = '<iframe src="https://s.tradingview.com/widgetembed/?symbol=NASDAQ:' + sym +
+    '&interval=5&theme=dark&style=1&locale=en&toolbar_bg=%231f1730&withdateranges=1' +
+    '&showpopupbutton=1&allow_symbol_change=1&save_image=0&studies=EMA@tv-basicstudies,VWAP@tv-basicstudies,BB@tv-basicstudies,RSI@tv-basicstudies' +
+    '&hideideas=1&referral_id=tradedesk" ' +
+    'style="width:100%;height:500px;border:none;" allowtransparency="true" allowfullscreen="true"></iframe>';
+}
+
+/* ═══════════════════════════════════════════════════════════
+   AI OPPORTUNITY FINDER — improved with explanation
+═══════════════════════════════════════════════════════════ */
+var _origFindOpps = typeof findStrategyOpportunities === 'function' ? findStrategyOpportunities : null;
+findStrategyOpportunities = async function() {
+  var list = document.getElementById('opportunity-list');
+  if (!list) return;
+  list.innerHTML = '<div style="background:rgba(57,255,154,.05);border:0.5px solid rgba(57,255,154,.2);border-radius:6px;padding:12px 14px;margin-bottom:10px;font-size:10px;color:var(--muted2);line-height:1.65">' +
+    '<strong style="color:var(--accent)">What this does:</strong> The AI looks at the stocks currently in your screener results, then matches each one to your saved strategies based on price momentum, volume patterns and sector. It suggests specific entry/stop/target levels as a starting point — <strong style="color:var(--text)">always verify with your own chart analysis before trading.</strong>' +
+    '</div>' +
+    '<div style="padding:12px;color:var(--muted);font-size:11px;text-align:center">Analyzing screener data with AI…</div>';
+
+  await runScreener();
+  var scList = document.getElementById('screener-list');
+  var stocks = [];
+  if (scList) {
+    scList.querySelectorAll('.stock-card').forEach(function(c) {
+      var ticker = (c.querySelector('div>div:first-child')||{}).textContent || '';
+      var price  = (c.querySelector('div:last-child>div:first-child')||{}).textContent || '';
+      var chg    = (c.querySelector('div:last-child>div:last-child')||{}).textContent  || '';
+      if (ticker && ticker.length <= 6) stocks.push(ticker.trim() + ' (' + price.trim() + ', ' + chg.trim() + ')');
+    });
+  }
+  if (!stocks.length) {
+    list.innerHTML = '<div style="padding:12px;color:var(--amber);font-size:11px">Run the screener first to get stocks to analyze.</div>';
+    return;
+  }
+  var stratNames = typeof STRATEGIES !== 'undefined' ? STRATEGIES.slice(0,6).map(function(s){return s.name;}).join(', ') : '9 EMA, Breakout, VWAP, Gap & Go, Reversal';
+  var prompt = 'You are a trading analyst. Given these stocks: ' + stocks.slice(0,15).join(', ') +
+    '\nAnd these strategies: ' + stratNames +
+    '\nIdentify 4-6 specific trade setups. Return ONLY a JSON array, no markdown:\n' +
+    '[{"ticker":"NVDA","strategy":"9 EMA Momentum","setup":"Brief 1-sentence setup description","entry":"Entry trigger","stop":"Stop loss level","target":"Take profit level","rr":"2.5:1","confidence":"A"}]';
+  try {
+    var raw = await callAI(prompt);
+    var clean = raw.replace(/```json|```/g,'').trim();
+    var i1 = clean.indexOf('['), i2 = clean.lastIndexOf(']');
+    if (i1 === -1) throw new Error('AI returned no setups — check your AI key in Settings');
+    var opps = JSON.parse(clean.slice(i1, i2+1));
+    list.innerHTML = list.innerHTML.split('Analyzing screener')[0] +
+      '<div style="font-size:9px;color:var(--muted);margin-bottom:8px">AI matched ' + opps.length + ' setups from ' + stocks.length + ' screener results · ' + new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})</s> + '</div>' +
+      opps.map(function(o) {
+        var cc = o.confidence==='A'?'var(--accent)':o.confidence==='B'?'var(--amber)':'var(--muted2)';
+        return '<div style="background:var(--s2);border:0.5px solid var(--b2);border-radius:7px;padding:11px 14px;margin-bottom:7px">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
+            '<div><span style="font-size:14px;font-weight:600">' + o.ticker + '</span> <span style="font-size:9px;background:rgba(198,120,255,.12);color:var(--purple);padding:2px 7px;border-radius:3px;margin-left:4px">' + o.strategy + '</span></div>' +
+            '<div style="font-size:11px;font-weight:600;color:' + cc + '">Grade ' + (o.confidence||'B') + '</div>' +
+          '</div>' +
+          '<div style="font-size:10px;color:var(--muted2);margin-bottom:8px;line-height:1.55">' + o.setup + '</div>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;font-size:9px">' +
+            '<div><div style="color:var(--muted);margin-bottom:2px">Entry</div><div style="color:var(--accent);font-weight:500">' + o.entry + '</div></div>' +
+            '<div><div style="color:var(--muted);margin-bottom:2px">Stop</div><div style="color:var(--red);font-weight:500">' + o.stop + '</div></div>' +
+            '<div><div style="color:var(--muted);margin-bottom:2px">Target</div><div style="color:var(--amber);font-weight:500">' + o.target + '</div></div>' +
+            '<div><div style="color:var(--muted);margin-bottom:2px">R:R</div><div style="color:var(--purple);font-weight:500">' + o.rr + '</div></div>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+  } catch(e) {
+    list.innerHTML = list.innerHTML.split('Analyzing screener')[0] +
+      '<div style="padding:12px;color:var(--red);font-size:11px">AI error: ' + e.message + '</div>';
+  }
+};
+
+/* Init currency on load */
+loadCurrencyRates();
 
 </script>
 
