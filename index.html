@@ -2217,48 +2217,8 @@ function quickDeleteTrade(id) {
   save(); renderAll(); setTimeout(refreshOpenPositions, 300);
 }
 
-var _origRenderTrades = renderTrades;
-renderTrades = function() {
-  var p = activePort(); if (!p) return;
-  var sf = (document.getElementById('filter-strat') || {value: ''}).value;
-  var pt = portTrades(p.id).slice().reverse().filter(function(t) { return !sf || t.strategy === sf; });
-  var subEl = document.getElementById('trades-sub');
-  if (subEl) subEl.textContent = p.name + ' · ' + pt.length + ' trade' + (pt.length !== 1 ? 's' : '');
-  var tblEl = document.getElementById('trades-table');
-  if (!tblEl) return;
-  if (!pt.length) {
-    tblEl.innerHTML = '<div style="text-align:center;padding:32px;color:var(--muted)">No trades found. <button class="btn" style="margin-top:10px" onclick="openTradeModal()">+ Record first trade</button></div>';
-    return;
-  }
-  tblEl.innerHTML = '<table style="min-width:900px"><thead><tr>' +
-    '<th>Date</th><th>Ticker</th><th>Type</th><th>Strategy</th><th>Session</th>' +
-    '<th>Emotion</th><th>Qty</th><th>Price</th><th>SL</th><th>TP</th><th>Notes</th>' +
-    '<th style="text-align:right">Actions</th></tr></thead><tbody>' +
-    pt.map(function(t) {
-      return '<tr>' +
-        '<td style="color:var(--muted)">' + t.date + '</td>' +
-        '<td style="font-weight:500">' + t.ticker + '</td>' +
-        '<td><span class="badge ' + t.type + '">' + t.type.toUpperCase() + '</span></td>' +
-        '<td><span class="tag strat">' + (t.strategy || '—') + '</span></td>' +
-        '<td><span class="tag sess">' + (t.session || '—') + '</span></td>' +
-        '<td style="color:' + (t.emotion === 'Revenge' || t.emotion === 'FOMO' ? 'var(--red)' : 'var(--muted2)') + '">' + (t.emotion || '—') + '</td>' +
-        '<td>' + fmt(t.qty, 2) + '</td>' +
-        '<td>€' + fmt(t.price) + '</td>' +
-        '<td style="color:var(--red)">' + (t.sl ? '€' + fmt(t.sl) : '—') + '</td>' +
-        '<td style="color:var(--teal)">' + (t.tp ? '€' + fmt(t.tp) : '—') + '</td>' +
-        '<td style="color:var(--muted);max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (t.notes || '—') + '</td>' +
-        '<td style="text-align:right;white-space:nowrap">' +
-          '<button style="background:var(--s3);border:0.5px solid var(--b2);color:var(--muted2);padding:3px 8px;border-radius:3px;font-size:9px;cursor:pointer;font-family:var(--mono);margin-right:3px" ' +
-          'onmouseover="this.style.color=\'var(--accent)\';this.style.borderColor=\'var(--accent)\'" ' +
-          'onmouseout="this.style.color=\'var(--muted2)\';this.style.borderColor=\'var(--b2)\'" ' +
-          'onclick="event.stopPropagation();openTradeModalEdit(\'' + t.id + '\')">✎ Edit</button>' +
-          '<button style="background:var(--s3);border:0.5px solid var(--b2);color:var(--muted2);padding:3px 8px;border-radius:3px;font-size:9px;cursor:pointer;font-family:var(--mono)" ' +
-          'onmouseover="this.style.color=\'var(--red)\';this.style.borderColor=\'var(--red)\'" ' +
-          'onmouseout="this.style.color=\'var(--muted2)\';this.style.borderColor=\'var(--b2)\'" ' +
-          'onclick="event.stopPropagation();quickDeleteTrade(\'' + t.id + '\')">✕</button>' +
-        '</td></tr>';
-    }).join('') + '</tbody></table>';
-};
+
+
 
 /* ── Open positions with live prices ──────────────────────── */
 var _liveCache = {};
@@ -3456,54 +3416,8 @@ function bulkDeleteTrades() {
 }
 
 // Override renderTrades to support bulk mode checkboxes
-var _origRenderTradesBulk = renderTrades;
-renderTrades = function() {
-  var p = activePort(); if (!p) return;
-  var sf = (document.getElementById('filter-strat') || {value: ''}).value;
-  var pt = portTrades(p.id).slice().reverse().filter(function(t) { return !sf || t.strategy === sf; });
-  var subEl = document.getElementById('trades-sub');
-  if (subEl) subEl.textContent = p.name + ' · ' + pt.length + ' trade' + (pt.length !== 1 ? 's' : '');
-  var tblEl = document.getElementById('trades-table');
-  if (!tblEl) return;
-  if (!pt.length) {
-    tblEl.innerHTML = '<div style="text-align:center;padding:32px;color:var(--muted)">No trades found. <button class="btn" style="margin-top:10px" onclick="openTradeModal()">+ Record first trade</button></div>';
-    return;
-  }
-  var sym = getCurrencySymbol();
-  tblEl.innerHTML = '<table style="min-width:' + (_bulkMode ? '950px' : '900px') + '"><thead><tr>' +
-    (_bulkMode ? '<th><input type="checkbox" onchange="(function(cb){var pt2=document.querySelectorAll(\'[id^=cb_]\');pt2.forEach(function(c){c.checked=cb.checked;var id=c.id.replace(\'cb_\',\'\');if(cb.checked)_selectedTradeIds.add(id);else _selectedTradeIds.delete(id);});var db=document.getElementById(\'bulk-del-btn\');if(db){db.style.display=_selectedTradeIds.size>0?\'block\':\'none\';db.innerHTML=\'&#10005; Delete \'+_selectedTradeIds.size+\' selected\';}})(this)"></th>' : '') +
-    '<th>Date</th><th>Ticker</th><th>Type</th><th>Strategy</th><th>Session</th>' +
-    '<th>Emotion</th><th>Qty</th><th>Price</th><th>Curr</th><th>SL</th><th>TP</th><th>Notes</th>' +
-    '<th style="text-align:right">Actions</th></tr></thead><tbody>' +
-    pt.map(function(t) {
-      var tradeCurr = t.currency || getMainCurrency();
-      var currLabel = tradeCurr !== getMainCurrency() ? '<span class="curr-badge">' + tradeCurr + '</span>' : '';
-      return '<tr' + (_bulkMode && _selectedTradeIds.has(t.id) ? ' style="background:rgba(57,255,154,.05)"' : '') + '>' +
-        (_bulkMode ? '<td><input type="checkbox" id="cb_' + t.id + '"' + (_selectedTradeIds.has(t.id) ? ' checked' : '') + ' onchange="toggleTradeSelect(\'' + t.id + '\')"></td>' : '') +
-        '<td style="color:var(--muted)">' + t.date + '</td>' +
-        '<td style="font-weight:600">' + t.ticker + '</td>' +
-        '<td><span class="badge ' + t.type + '">' + t.type.toUpperCase() + '</span></td>' +
-        '<td><span class="tag strat">' + (t.strategy || '—') + '</span></td>' +
-        '<td><span class="tag sess">' + (t.session || '—') + '</span></td>' +
-        '<td style="color:' + (t.emotion==='Revenge'||t.emotion==='FOMO'?'var(--red)':'var(--muted2)') + '">' + (t.emotion || '—') + '</td>' +
-        '<td>' + fmt(t.qty, 2) + '</td>' +
-        '<td>' + sym + fmt(t.price) + currLabel + '</td>' +
-        '<td style="font-size:9px;color:var(--muted)">' + tradeCurr + '</td>' +
-        '<td style="color:var(--red)">' + (t.sl ? sym + fmt(t.sl) : '—') + '</td>' +
-        '<td style="color:var(--teal)">' + (t.tp ? sym + fmt(t.tp) : '—') + '</td>' +
-        '<td style="color:var(--muted);max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (t.notes || '—') + '</td>' +
-        '<td style="text-align:right;white-space:nowrap">' +
-          '<button style="background:var(--s3);border:0.5px solid var(--b2);color:var(--muted2);padding:3px 7px;border-radius:3px;font-size:9px;cursor:pointer;font-family:var(--mono);margin-right:2px" ' +
-          'onmouseover="this.style.color=\'var(--accent)\';this.style.borderColor=\'var(--accent)\'" ' +
-          'onmouseout="this.style.color=\'var(--muted2)\';this.style.borderColor=\'var(--b2)\'" ' +
-          'onclick="event.stopPropagation();openTradeModalEdit(\'' + t.id + '\')">✎</button>' +
-          '<button style="background:var(--s3);border:0.5px solid var(--b2);color:var(--muted2);padding:3px 7px;border-radius:3px;font-size:9px;cursor:pointer;font-family:var(--mono)" ' +
-          'onmouseover="this.style.color=\'var(--red)\';this.style.borderColor=\'var(--red)\'" ' +
-          'onmouseout="this.style.color=\'var(--muted2)\';this.style.borderColor=\'var(--b2)\'" ' +
-          'onclick="event.stopPropagation();quickDeleteTrade(\'' + t.id + '\')">✕</button>' +
-        '</td></tr>';
-    }).join('') + '</tbody></table>';
-};
+
+
 
 /* ═══════════════════════════════════════════════════════════
    TRADINGVIEW WIDGET INTEGRATION (Free — no API key needed)
@@ -3659,59 +3573,8 @@ function _filterTrades(pt) {
 }
 
 /* Patch renderTrades to use filters */
-var _origRenderTradesFilter = renderTrades;
-renderTrades = function() {
-  var p = activePort(); if (!p) return;
-  var all = portTrades(p.id).slice().reverse();
-  var pt  = _filterTrades(all);
-  var subEl = document.getElementById('trades-sub');
-  if (subEl) subEl.textContent = p.name + ' · ' + pt.length + (pt.length !== all.length ? ' of ' + all.length : '') + ' trade' + (pt.length !== 1 ? 's' : '');
-  var cntEl = document.getElementById('tf-filter-count');
-  if (cntEl) cntEl.textContent = pt.length !== all.length ? pt.length + ' match' : '';
-  var tblEl = document.getElementById('trades-table');
-  if (!tblEl) return;
-  if (!pt.length) {
-    tblEl.innerHTML = '<div style="text-align:center;padding:28px;color:var(--muted)">' + (all.length ? 'No trades match your filters. <button class="btn sec sm" style="margin-left:8px" onclick="clearTradeFilters()">Clear filters</button>' : 'No trades yet. <button class="btn" style="margin-top:8px" onclick="openTradeModal()">+ Record first trade</button>') + '</div>';
-    return;
-  }
-  var sym = typeof getCurrencySymbol === 'function' ? getCurrencySymbol() : '$';
-  tblEl.innerHTML = '<table style="min-width:' + (_bulkMode ? '1000px' : '950px') + '"><thead><tr style="background:var(--s2)">' +
-    (_bulkMode ? '<th style="padding:7px 8px;text-align:left"><input type="checkbox" onchange="(function(cb){var all2=document.querySelectorAll(\'[id^=cb_]\');all2.forEach(function(c){c.checked=cb.checked;var id=c.id.replace(\'cb_\',\'\');if(cb.checked)_selectedTradeIds.add(id);else _selectedTradeIds.delete(id);});var db=document.getElementById(\'bulk-del-btn\');if(db){db.style.display=_selectedTradeIds.size>0?\'block\':\'none\';db.innerHTML=\'&#10005; Delete \'+_selectedTradeIds.size+\' selected\';}})(this)"></th>' : '') +
-    ['Date','Ticker','Type','Strategy','Session','Emotion','Qty','Price','Curr','SL','TP','Notes','Actions'].map(function(h2,i) {
-      return '<th style="font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.7px;padding:7px 8px;text-align:' + (i>=6&&i<12?'right':'left') + ';font-weight:400;border-bottom:0.5px solid var(--b1)">' + h2 + '</th>';
-    }).join('') +
-    '</tr></thead><tbody>' +
-    pt.map(function(t) {
-      var tradeCurr = t.currency || 'USD';
-      var mainCurr  = typeof getMainCurrency === 'function' ? getMainCurrency() : 'USD';
-      var diffCurr  = tradeCurr !== mainCurr;
-      var isSelected = _selectedTradeIds && _selectedTradeIds.has(t.id);
-      return '<tr' + (isSelected ? ' style="background:rgba(57,255,154,.04)"' : '') + '>' +
-        (_bulkMode ? '<td style="padding:6px 8px"><input type="checkbox" id="cb_' + t.id + '"' + (isSelected?' checked':'') + ' onchange="toggleTradeSelect(\'' + t.id + '\')"></td>' : '') +
-        '<td style="padding:7px 8px;color:var(--muted);white-space:nowrap">' + t.date + '</td>' +
-        '<td style="padding:7px 8px;font-weight:600">' + t.ticker + '</td>' +
-        '<td style="padding:7px 8px"><span class="badge ' + t.type + '">' + t.type.toUpperCase() + '</span></td>' +
-        '<td style="padding:7px 8px"><span class="tag strat">' + (t.strategy||'—') + '</span></td>' +
-        '<td style="padding:7px 8px"><span class="tag sess">' + (t.session||'—') + '</span></td>' +
-        '<td style="padding:7px 8px;color:' + (t.emotion==='Revenge'||t.emotion==='FOMO'?'var(--red)':'var(--muted2)') + '">' + (t.emotion||'—') + '</td>' +
-        '<td style="padding:7px 8px;text-align:right">' + fmt(t.qty,2) + '</td>' +
-        '<td style="padding:7px 8px;text-align:right">' + sym + fmt(t.price) + '</td>' +
-        '<td style="padding:7px 8px;text-align:right"><span style="font-size:9px;color:' + (diffCurr?'var(--blue)':'var(--muted)') + '">' + tradeCurr + '</span></td>' +
-        '<td style="padding:7px 8px;text-align:right;color:var(--red)">' + (t.sl?sym+fmt(t.sl):'—') + '</td>' +
-        '<td style="padding:7px 8px;text-align:right;color:var(--teal)">' + (t.tp?sym+fmt(t.tp):'—') + '</td>' +
-        '<td style="padding:7px 8px;color:var(--muted);max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + (t.notes||'').replace(/"/g,'') + '">' + (t.notes||'—') + '</td>' +
-        '<td style="padding:7px 8px;text-align:right;white-space:nowrap">' +
-          '<button style="background:var(--s3);border:0.5px solid var(--b2);color:var(--muted2);padding:3px 7px;border-radius:3px;font-size:9px;cursor:pointer;font-family:var(--mono);margin-right:2px" ' +
-          'onmouseover="this.style.color=\'var(--accent)\';this.style.borderColor=\'var(--accent)\'" ' +
-          'onmouseout="this.style.color=\'var(--muted2)\';this.style.borderColor=\'var(--b2)\'" ' +
-          'onclick="event.stopPropagation();openTradeModalEdit(\'' + t.id + '\')">✎</button>' +
-          '<button style="background:var(--s3);border:0.5px solid var(--b2);color:var(--muted2);padding:3px 7px;border-radius:3px;font-size:9px;cursor:pointer;font-family:var(--mono)" ' +
-          'onmouseover="this.style.color=\'var(--red)\';this.style.borderColor=\'var(--red)\'" ' +
-          'onmouseout="this.style.color=\'var(--muted2)\';this.style.borderColor=\'var(--b2)\'" ' +
-          'onclick="event.stopPropagation();quickDeleteTrade(\'' + t.id + '\')">✕</button>' +
-        '</td></tr>';
-    }).join('') + '</tbody></table>';
-};
+
+
 
 /* ══════════════════════════════════════════════════════════
    POSITION GROUPING SYSTEM
@@ -3783,12 +3646,7 @@ function openGroupEditor(ticker, currentGroup) {
 }
 
 /* Patch refreshOpenPositions to apply grouping */
-var _origRefreshOP = refreshOpenPositions;
-refreshOpenPositions = async function() {
-  await _origRefreshOP();
-  // After positions load, apply grouping to existing rows
-  // (grouping is applied inside the new rowsHtml via _assignGroups)
-};
+
 
 /* ══════════════════════════════════════════════════════════
    BACKTEST DATE/BAR NAVIGATION
@@ -3897,7 +3755,6 @@ function btPan(delta) {
 
 /* Patch _assignGroups into refreshOpenPositions properly */
 (function patchGrouping() {
-  var _base = typeof _origRefreshOP === 'function' ? _origRefreshOP : refreshOpenPositions;
   // We inject grouping directly in the row render, so just make sure
   // the group mode select triggers a refresh
   setTimeout(function() {
@@ -3982,85 +3839,8 @@ function _filterTradesArr(arr) {
 }
 
 /* Single authoritative renderTrades — replaces ALL previous versions */
-renderTrades = function() {
-  var p = activePort(); if (!p) return;
-  var all = portTrades(p.id).slice().reverse();
-  var pt  = _filterTradesArr(all);
-  var sym = typeof getCurrencySymbol === 'function' ? getCurrencySymbol() : '$';
 
-  var subEl = document.getElementById('trades-sub');
-  if (subEl) subEl.textContent = p.name + ' · ' + pt.length + (pt.length!==all.length?' / '+all.length+' filtered':' trades');
 
-  var cntEl = document.getElementById('tf-filter-count');
-  if (cntEl) {
-    var activeFilters = Object.values(_tf).filter(function(v){return v;}).length;
-    cntEl.textContent = activeFilters > 0 ? pt.length + ' result' + (pt.length!==1?'s':'') : '';
-    cntEl.style.color = activeFilters > 0 ? 'var(--accent)' : 'var(--muted)';
-  }
-
-  var tblEl = document.getElementById('trades-table');
-  if (!tblEl) return;
-
-  if (!pt.length) {
-    var msg = all.length
-      ? '<div style="text-align:center;padding:28px;color:var(--muted)">No trades match your filters. <button class="btn sec sm" style="margin-left:8px" onclick="clearTradeFilters()">Clear filters</button></div>'
-      : '<div style="text-align:center;padding:28px;color:var(--muted)">No trades yet. <button class="btn" style="margin-top:10px;display:block;margin-left:auto;margin-right:auto" onclick="openTradeModal()">+ Record first trade</button></div>';
-    tblEl.innerHTML = msg;
-    return;
-  }
-
-  var mainCurr = typeof getMainCurrency === 'function' ? getMainCurrency() : 'USD';
-  var bulkCb = _bulkMode
-    ? '<th style="width:30px;padding:7px 8px"><input type="checkbox" id="sel-all-cb" onchange="(function(cb){var cbs=document.querySelectorAll(\'[id^=cb_]\');cbs.forEach(function(c){c.checked=cb.checked;var id=c.id.replace(\'cb_\',\'\');if(cb.checked)_selectedTradeIds.add(id);else _selectedTradeIds.delete(id);});_updateBulkBtn();})(this)"></th>'
-    : '';
-
-  tblEl.innerHTML = '<table><thead><tr style="background:var(--s2)">' + bulkCb +
-    '<th style="cursor:pointer" onclick="sortTrades(\'date\')">Date ↕</th>' +
-    '<th style="cursor:pointer" onclick="sortTrades(\'ticker\')">Ticker ↕</th>' +
-    '<th>Type</th>' +
-    '<th style="cursor:pointer" onclick="sortTrades(\'strategy\')">Strategy ↕</th>' +
-    '<th>Session</th>' +
-    '<th>Emotion</th>' +
-    '<th style="text-align:right;cursor:pointer" onclick="sortTrades(\'qty\')">Qty ↕</th>' +
-    '<th style="text-align:right;cursor:pointer" onclick="sortTrades(\'price\')">Price ↕</th>' +
-    '<th>Curr</th>' +
-    '<th style="text-align:right">SL</th>' +
-    '<th style="text-align:right">TP</th>' +
-    '<th>Notes</th>' +
-    '<th style="text-align:right">Actions</th>' +
-    '</tr></thead><tbody>' +
-    pt.map(function(t) {
-      var tradeCurr = t.currency || mainCurr;
-      var diffCurr = tradeCurr !== mainCurr;
-      var isSel = _selectedTradeIds && _selectedTradeIds.has(t.id);
-      var rowBg = isSel ? 'rgba(57,255,154,.05)' : '';
-      var emCol = (t.emotion==='Revenge'||t.emotion==='FOMO') ? 'var(--red)' : 'var(--muted2)';
-      return '<tr style="background:' + rowBg + '">' +
-        (_bulkMode?'<td style="padding:6px 8px"><input type="checkbox" id="cb_'+t.id+'"'+(isSel?' checked':'')+'onchange="toggleTradeSelect(\''+t.id+'\')"></td>':'') +
-        '<td style="color:var(--muted);white-space:nowrap;padding:7px 8px">' + t.date + '</td>' +
-        '<td style="font-weight:700;padding:7px 8px">' + t.ticker + '</td>' +
-        '<td style="padding:7px 8px"><span class="badge '+t.type+'">'+t.type.toUpperCase()+'</span></td>' +
-        '<td style="padding:7px 8px"><span class="tag strat">'+(t.strategy||'—')+'</span></td>' +
-        '<td style="padding:7px 8px"><span class="tag sess">'+(t.session||'—')+'</span></td>' +
-        '<td style="padding:7px 8px;color:'+emCol+'">'+(t.emotion||'—')+'</td>' +
-        '<td style="padding:7px 8px;text-align:right">'+fmt(t.qty,2)+'</td>' +
-        '<td style="padding:7px 8px;text-align:right">'+sym+fmt(t.price)+'</td>' +
-        '<td style="padding:7px 8px"><span style="font-size:9px;background:'+(diffCurr?'rgba(123,140,255,.15)':'rgba(255,255,255,.05)')+';color:'+(diffCurr?'var(--blue)':'var(--muted)')+';padding:1px 5px;border-radius:3px">'+tradeCurr+'</span></td>' +
-        '<td style="padding:7px 8px;text-align:right;color:var(--red)">'+(t.sl?sym+fmt(t.sl):'—')+'</td>' +
-        '<td style="padding:7px 8px;text-align:right;color:var(--teal)">'+(t.tp?sym+fmt(t.tp):'—')+'</td>' +
-        '<td style="padding:7px 8px;color:var(--muted);max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+(t.notes||'')+'">'+( t.notes||'—')+'</td>' +
-        '<td style="padding:7px 8px;text-align:right;white-space:nowrap">' +
-          '<button style="background:var(--s3);border:0.5px solid var(--b2);color:var(--muted2);padding:3px 7px;border-radius:3px;font-size:9px;cursor:pointer;font-family:var(--mono);margin-right:2px" '+
-          'onmouseover="this.style.color=\'var(--accent)\';this.style.borderColor=\'var(--accent)\'" '+
-          'onmouseout="this.style.color=\'var(--muted2)\';this.style.borderColor=\'var(--b2)\'" '+
-          'onclick="event.stopPropagation();openTradeModalEdit(\''+t.id+'\')">✎</button>' +
-          '<button style="background:var(--s3);border:0.5px solid var(--b2);color:var(--muted2);padding:3px 7px;border-radius:3px;font-size:9px;cursor:pointer;font-family:var(--mono)" '+
-          'onmouseover="this.style.color=\'var(--red)\';this.style.borderColor=\'var(--red)\'" '+
-          'onmouseout="this.style.color=\'var(--muted2)\';this.style.borderColor=\'var(--b2)\'" '+
-          'onclick="event.stopPropagation();quickDeleteTrade(\''+t.id+'\')">✕</button>' +
-        '</td></tr>';
-    }).join('') + '</tbody></table>';
-};
 
 var _sortCol = 'date', _sortAsc = false;
 function sortTrades(col) {
@@ -4139,215 +3919,7 @@ function _getGroupLabel(ticker) {
 }
 
 /* Patch the open positions rendering to use proper aligned table */
-var _origRefreshOP2 = refreshOpenPositions;
-refreshOpenPositions = async function() {
-  var p = activePort(); if (!p) return;
-  var container = document.getElementById('open-positions');
-  var cntEl = document.getElementById('op-count');
-  if (!container) return;
 
-  // Build holdings with per-buy detail
-  var costMap = {};
-  portTrades(p.id).slice().sort(function(a,b){return a.date.localeCompare(b.date);}).forEach(function(t) {
-    var k = t.ticker.toUpperCase();
-    if (!costMap[k]) costMap[k] = {ticker:k, qty:0, cost:0, buys:[]};
-    if (t.type === 'buy') {
-      costMap[k].qty  += t.qty;
-      costMap[k].cost += t.qty * t.price;
-      costMap[k].buys.push({date:t.date, qty:t.qty, price:t.price});
-    } else if (t.type === 'sell') {
-      var sell = Math.min(t.qty, costMap[k].qty);
-      if (costMap[k].qty > 0) costMap[k].cost *= (1 - sell/costMap[k].qty);
-      costMap[k].qty = Math.max(0, costMap[k].qty - sell);
-    }
-  });
-  var holdings = Object.values(costMap).filter(function(h){return h.qty > 0.001;});
-
-  if (!holdings.length) {
-    container.innerHTML = '<div style="text-align:center;padding:18px;color:var(--muted);font-size:11px">No open positions. Record a Buy trade to create a position.</div>';
-    if (cntEl) cntEl.textContent = '';
-    window._currentTotalValue = 0; window._currentTotalCost = 0;
-    return;
-  }
-  if (cntEl) cntEl.textContent = '(' + holdings.length + ')';
-  container.innerHTML = '<div style="font-size:9px;color:var(--muted);padding:6px 0">Fetching live prices…</div>';
-
-  // Fetch via Alpaca then Yahoo fallback
-  var syms = holdings.map(function(h){return h.ticker;}).join(',');
-  var live = null;
-  var alpKey = localStorage.getItem('alp_key')||'', alpSec = localStorage.getItem('alp_secret')||'';
-  if (alpKey && alpSec) {
-    try {
-      var r1 = await fetch('https://data.alpaca.markets/v2/stocks/trades/latest?symbols='+syms+'&feed=iex',
-        {headers:{'APCA-API-KEY-ID':alpKey,'APCA-API-SECRET-KEY':alpSec}, signal:AbortSignal.timeout(8000)});
-      if (r1.ok) {
-        var d1 = await r1.json(); var tr = d1.trades||{};
-        if (Object.keys(tr).length) {
-          live = {};
-          Object.keys(tr).forEach(function(s){if(tr[s]&&tr[s].p)live[s]={price:tr[s].p,chg:0};});
-        }
-      }
-      // Get day change via snapshots
-      if (live) {
-        var r2 = await fetch('https://data.alpaca.markets/v2/stocks/snapshots?symbols='+syms+'&feed=iex',
-          {headers:{'APCA-API-KEY-ID':alpKey,'APCA-API-SECRET-KEY':alpSec}, signal:AbortSignal.timeout(6000)});
-        if (r2.ok) {
-          var d2 = await r2.json();
-          Object.keys(d2).forEach(function(s){
-            if(live[s]&&d2[s]&&d2[s].prevDailyBar){
-              var prev=d2[s].prevDailyBar.c;
-              live[s].chg=prev?((live[s].price-prev)/prev*100):0;
-            }
-          });
-        }
-      }
-    } catch(e){}
-  }
-  // Yahoo fallback
-  if (!live) {
-    var proxies=['https://api.allorigins.win/get?url='+encodeURIComponent('https://query1.finance.yahoo.com/v7/finance/quote?symbols='+syms)+'&t='+Date.now()];
-    for(var pi=0;pi<proxies.length&&!live;pi++){
-      try{var rr=await fetch(proxies[pi],{signal:AbortSignal.timeout(6000)});if(!rr.ok)continue;var jj=await rr.json();var raw=jj.contents||'{}';var dd=JSON.parse(raw);var res=(dd.quoteResponse&&dd.quoteResponse.result)||[];if(res.length){live={};res.forEach(function(q){if(q.regularMarketPrice)live[q.symbol]={price:q.regularMarketPrice,chg:q.regularMarketChangePercent||0};});}}catch(e){}
-    }
-  }
-
-  var sym = typeof getCurrencySymbol==='function'?getCurrencySymbol():'$';
-  var totalValue=0, totalCost2=0;
-  var rows = holdings.map(function(h) {
-    var avgCost  = h.qty > 0 ? h.cost/h.qty : 0;
-    var liveData = live && live[h.ticker];
-    var curPrice = liveData ? liveData.price : avgCost;
-    var dayChg   = liveData ? liveData.chg : null;
-    var value    = h.qty * curPrice;
-    var uPnL     = (curPrice - avgCost) * h.qty;
-    var uPct     = avgCost ? (curPrice-avgCost)/avgCost*100 : 0;
-    totalValue  += value;
-    totalCost2  += h.cost;
-    return {h:h, avgCost:avgCost, curPrice:curPrice, dayChg:dayChg, value:value, uPnL:uPnL, uPct:uPct, hasLive:!!liveData};
-  });
-  rows.forEach(function(r){r.alloc=totalValue>0?r.value/totalValue*100:0;});
-  rows.sort(function(a,b){return b.value-a.value;});
-
-  // Store for allocation chart
-  window._currentTotalValue = totalValue;
-  window._currentTotalCost  = totalCost2;
-  if (live) window._livePriceMap = Object.keys(live).reduce(function(m,k){m[k]=live[k].price;return m;},{});
-
-  var liveMsg = live
-    ? '<span class="live-dot"></span>Live via Alpaca · '+new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})
-    : (alpKey ? '<span style="color:var(--amber)">⚠ Alpaca unavailable — showing avg cost</span>' : '<span style="color:var(--amber)">⚠ Add Alpaca keys in Settings for live prices</span>');
-
-  var mode = localStorage.getItem('pos_group_mode')||'none';
-
-  // Group selector
-  var groupBar = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:6px">' +
-    '<div style="font-size:9px;color:var(--muted)">' + liveMsg + '</div>' +
-    '<div style="display:flex;gap:6px;align-items:center">' +
-      '<label style="font-size:9px;color:var(--muted)">Group by:</label>' +
-      '<select onchange="setPosGroupMode(this.value)" style="background:var(--s2);border:0.5px solid var(--b2);border-radius:4px;padding:3px 7px;color:var(--text);font-family:var(--mono);font-size:9px;outline:none">' +
-        ['none:None','sector:Sector','beta:Beta (High/Mid/Low)','manual:Manual labels'].map(function(o){var parts=o.split(':');return '<option value="'+parts[0]+'"'+(mode===parts[0]?' selected':'')+'>'+parts[1]+'</option>';}).join('') +
-      '</select>' +
-      '<button class="refresh-btn" onclick="refreshOpenPositions()" style="font-size:9px">⟳</button>' +
-    '</div>' +
-  '</div>';
-
-  // Build table — use real <table> for guaranteed alignment
-  var thead = '<table style="width:100%;border-collapse:collapse">' +
-    '<thead><tr style="border-bottom:1px solid var(--b2);background:rgba(0,0,0,.2)">' +
-    '<th style="padding:6px 8px 6px 0;font-size:8px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);font-weight:400;text-align:left;width:65px">Ticker</th>' +
-    '<th style="padding:6px 8px;font-size:8px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);font-weight:400;text-align:left">Avg Cost · Shares</th>' +
-    '<th style="padding:6px 8px;font-size:8px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);font-weight:400;text-align:right;width:85px">Live Price</th>' +
-    '<th style="padding:6px 8px;font-size:8px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);font-weight:400;text-align:right;width:85px">Value</th>' +
-    '<th style="padding:6px 8px;font-size:8px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);font-weight:400;text-align:right;width:110px">Unrealized P&L</th>' +
-    '<th style="padding:6px 8px;font-size:8px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);font-weight:400;text-align:right;width:60px">Day %</th>' +
-    '<th style="padding:6px 8px;font-size:8px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);font-weight:400;text-align:right;width:50px">Alloc</th>' +
-    (mode==='manual'?'<th style="padding:6px 8px;font-size:8px;color:var(--muted);font-weight:400;width:30px"></th>':'') +
-    '</tr></thead><tbody id="pos-tbody">';
-
-  // Group rows if needed
-  var groupedRows = {};
-  rows.forEach(function(r) {
-    var grp = _getGroupLabel(r.h.ticker);
-    if (!groupedRows[grp]) groupedRows[grp] = [];
-    groupedRows[grp].push(r);
-  });
-
-  var tbody = '';
-  var groups = Object.keys(groupedRows);
-  // Sort groups: none mode = single group '', else alphabetical
-  if (mode !== 'none') groups.sort();
-
-  groups.forEach(function(grp) {
-    // Group header row
-    if (mode !== 'none' && grp) {
-      var grpRows = groupedRows[grp];
-      var grpVal  = grpRows.reduce(function(s,r){return s+r.value;},0);
-      var grpPnL  = grpRows.reduce(function(s,r){return s+r.uPnL;},0);
-      tbody += '<tr style="background:rgba(198,120,255,.06);border-top:0.5px solid var(--b2);border-bottom:0.5px solid var(--b1)">' +
-        '<td colspan="'+(mode==='manual'?8:7)+'" style="padding:5px 8px;font-size:9px;font-weight:600;color:var(--purple)">' +
-          grp + ' <span style="color:var(--muted);font-weight:400;margin-left:8px">' +
-          grpRows.length + ' position' + (grpRows.length>1?'s':'') + ' · ' + sym + (grpVal/1000).toFixed(0) + 'k · ' +
-          (grpPnL>=0?'+':'') + sym + Math.abs(grpPnL).toFixed(0) + ' P&L</span>' +
-        '</td></tr>';
-    }
-    groupedRows[grp].forEach(function(r) {
-      var pnlCol = r.uPnL >= 0 ? 'var(--accent)' : 'var(--red)';
-      var dayCol = r.dayChg!=null?(r.dayChg>=0?'var(--accent)':'var(--red)'):'var(--muted)';
-      var buyDetail = r.h.buys.map(function(b) {
-        return '<tr style="background:rgba(0,0,0,.15);font-size:9px">' +
-          '<td style="padding:3px 8px;color:var(--muted)" colspan="2">' + b.date + '</td>' +
-          '<td style="padding:3px 8px;color:var(--muted2)" colspan="2">' + fmt(b.qty,2) + ' × ' + sym + fmt(b.price) + '</td>' +
-          '<td style="padding:3px 8px;color:var(--muted);text-align:right" colspan="3">' + sym + fmt(b.qty*b.price,0) + '</td>' +
-          (mode==='manual'?'<td></td>':'') + '</tr>';
-      }).join('');
-
-      tbody += '<tr class="pos-row" style="border-bottom:0.5px solid var(--b1);cursor:pointer" ' +
-        'onclick="(function(){var d=document.getElementById(\'bh_' + r.h.ticker + '\');if(d)d.style.display=d.style.display===\'none\'?\'table-row-group\':\'none\';})()">' +
-        '<td style="padding:8px 8px 8px 0;vertical-align:middle"><span style="font-size:12px;font-weight:700">' + r.h.ticker + '</span></td>' +
-        '<td style="padding:8px;font-size:10px;color:var(--muted2);vertical-align:middle">' + sym + fmt(r.avgCost) + ' <span style="color:var(--muted)">× ' + fmt(r.h.qty,r.h.qty<1?4:2) + '</span></td>' +
-        '<td style="padding:8px;text-align:right;font-size:11px;vertical-align:middle">' + (r.hasLive?sym+fmt(r.curPrice):'<span style="color:var(--muted)">—</span>') + '</td>' +
-        '<td style="padding:8px;text-align:right;font-size:11px;font-weight:700;vertical-align:middle">' + sym + fmt(r.value,0) + '</td>' +
-        '<td style="padding:8px;text-align:right;vertical-align:middle"><span style="font-size:12px;font-weight:700;color:'+pnlCol+'">'+(r.uPnL>=0?'+':'')+sym+fmt(Math.abs(r.uPnL),0)+'</span> <span style="font-size:9px;color:'+pnlCol+'">'+(r.uPct>=0?'+':'')+r.uPct.toFixed(1)+'%</span></td>' +
-        '<td style="padding:8px;text-align:right;font-size:10px;color:'+dayCol+';vertical-align:middle">'+(r.dayChg!=null?(r.dayChg>=0?'+':'')+r.dayChg.toFixed(2)+'%':'—')+'</td>' +
-        '<td style="padding:8px;text-align:right;font-size:10px;color:var(--muted);vertical-align:middle">'+r.alloc.toFixed(1)+'%</td>' +
-        (mode==='manual'?'<td style="padding:8px;text-align:center"><button onclick="event.stopPropagation();editPositionGroup(\''+r.h.ticker+'\')" style="background:none;border:0.5px solid var(--b2);color:var(--muted);padding:2px 5px;border-radius:3px;cursor:pointer;font-size:9px">✎</button></td>':'') +
-      '</tr>' +
-      '<tbody id="bh_' + r.h.ticker + '" style="display:none">' +
-        '<tr><td colspan="'+(mode==='manual'?8:7)+'" style="padding:0">' +
-          '<table style="width:100%;border-collapse:collapse">' +
-            '<tr><td colspan="7" style="padding:4px 8px 2px;font-size:8px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted)">Buy history ('+r.h.buys.length+')</td></tr>' +
-            buyDetail +
-            '<tr><td colspan="7" style="padding:3px 8px 5px;font-size:9px;color:var(--muted)">Avg cost: '+sym+fmt(r.avgCost)+' · Total invested: '+sym+fmt(r.h.cost,0)+'</td></tr>' +
-          '</table>' +
-        '</td></tr>' +
-      '</tbody>';
-    });
-  });
-
-  var totalPnL2 = rows.reduce(function(s,r){return s+r.uPnL;},0);
-  var tfoot = '<tfoot><tr style="border-top:1.5px solid var(--b2);font-weight:700">' +
-    '<td style="padding:8px 8px 8px 0;font-size:11px;color:var(--muted2)">TOTAL</td>' +
-    '<td style="padding:8px"></td>' +
-    '<td style="padding:8px"></td>' +
-    '<td style="padding:8px;text-align:right;font-size:12px">' + sym + fmt(totalValue,0) + '</td>' +
-    '<td style="padding:8px;text-align:right;font-size:12px;color:'+(totalPnL2>=0?'var(--accent)':'var(--red)')+'">'+( totalPnL2>=0?'+':'')+sym+fmt(Math.abs(totalPnL2),0)+'</td>' +
-    '<td style="padding:8px"></td>' +
-    '<td style="padding:8px;text-align:right;font-size:10px;color:var(--muted)">100%</td>' +
-    (mode==='manual'?'<td></td>':'') +
-    '</tr></tfoot>';
-
-  container.innerHTML = groupBar + thead + tbody + tfoot + '</table>';
-  // Also refresh allocation bars  
-  if (typeof renderDashboard !== 'undefined') {
-    var allocEl2 = document.getElementById('alloc-bars');
-    if (allocEl2 && rows.length) {
-      allocEl2.innerHTML = rows.map(function(r){
-        var pct = r.alloc.toFixed(1);
-        return '<div class="alloc-row"><div class="al-lbl">'+r.h.ticker+'</div><div class="al-bw"><div class="al-bf" style="width:'+Math.min(parseFloat(pct),100)+'%;background:'+(activePort()||{color:'#39ff9a'}).color+'"></div></div><div class="al-pct">'+pct+'%</div></div>';
-      }).join('');
-    }
-  }
-};
 
 /* ════════════════════════════════════════════════════════════
    BACKUP / RESTORE SYSTEM
@@ -4633,9 +4205,7 @@ function openGroupEditor(ticker, currentGroup) {
 /* Patch refreshOpenPositions to assign groups before rendering */
 (function() {
   var _base = refreshOpenPositions;
-  refreshOpenPositions = async function() {
-    await _base();
-  };
+  
   // Also patch _assignGroups call into the rows render flow
   // Done via _applyPositionGroups called in the container build
 })();
@@ -4643,11 +4213,7 @@ function openGroupEditor(ticker, currentGroup) {
 /* Intercept the container innerHTML to apply groups */
 (function patchGroupsIntoRender() {
   var origRefresh = refreshOpenPositions;
-  refreshOpenPositions = async function() {
-    // Temporarily patch rows to have group assigned
-    var origRows = rows; // may not exist here, handled in closure below
-    await origRefresh.call(this);
-  };
+  
 })();
 
 /* 
@@ -4746,7 +4312,6 @@ function btUpdateVisibleRange(val) {
 
 /* Patch btInitSession to init the nav bar */
 (function patchBtInit2() {
-  var _orig = typeof btInitSession==='function' ? btInitSession : null;
   if (_orig) {
     btInitSession = function() {
       _orig();
@@ -4873,6 +4438,429 @@ function btUpdateVisibleRange(val) {
     });
   }
 })();
+
+
+
+/* ═══════════════════════════════════════════════════════════════
+   DEFINITIVE FUNCTION IMPLEMENTATIONS
+   These replace all previous override chains cleanly.
+   Single source of truth for each function.
+═══════════════════════════════════════════════════════════════ */
+
+/* ── renderTrades: full implementation with filters + bulk ── */
+renderTrades = function() {
+  var p = activePort(); if (!p) return;
+  var all = portTrades(p.id).slice().reverse();
+  
+  // Apply filters
+  var fStrat   = (document.getElementById('tf-filter-strat')  ||{value:''}).value;
+  var fType    = (document.getElementById('tf-filter-type')   ||{value:''}).value;
+  var fEmotion = (document.getElementById('tf-filter-emotion')||{value:''}).value;
+  var fFrom    = (document.getElementById('tf-filter-from')   ||{value:''}).value;
+  var fTo      = (document.getElementById('tf-filter-to')     ||{value:''}).value;
+  var fSearch  = ((document.getElementById('tf-filter-search')||{value:''}).value||'').toLowerCase();
+  // Legacy filter
+  var fStratOld = (document.getElementById('filter-strat')||{value:''}).value;
+  if (!fStrat && fStratOld) fStrat = fStratOld;
+
+  var pt = all.filter(function(t) {
+    if (fStrat   && t.strategy !== fStrat)   return false;
+    if (fType    && t.type     !== fType)    return false;
+    if (fEmotion && t.emotion  !== fEmotion) return false;
+    if (fFrom    && t.date     <  fFrom)     return false;
+    if (fTo      && t.date     >  fTo)       return false;
+    if (fSearch) {
+      var hay = (t.ticker+' '+(t.notes||'')+' '+(t.strategy||'')).toLowerCase();
+      if (hay.indexOf(fSearch) === -1) return false;
+    }
+    return true;
+  });
+
+  var subEl = document.getElementById('trades-sub');
+  if (subEl) subEl.textContent = p.name + ' · ' + pt.length + (pt.length !== all.length ? ' of ' + all.length : '') + ' trade' + (pt.length !== 1 ? 's' : '');
+  var cntEl = document.getElementById('tf-filter-count');
+  if (cntEl) cntEl.textContent = pt.length !== all.length ? pt.length + ' shown' : '';
+
+  var tblEl = document.getElementById('trades-table');
+  if (!tblEl) return;
+
+  if (!pt.length) {
+    tblEl.innerHTML = '<div style="text-align:center;padding:28px;color:var(--muted)">' + 
+      (all.length ? 'No trades match filters. <button class="btn sec sm" style="margin-left:8px" onclick="clearTradeFilters()">Clear</button>' :
+       'No trades yet. <button class="btn" style="margin-top:10px" onclick="openTradeModal()">+ Record first trade</button>') + '</div>';
+    return;
+  }
+
+  var sym = typeof getCurrencySymbol === 'function' ? getCurrencySymbol() : '$';
+  var bulkMode = window._bulkMode || false;
+  var selectedIds = window._selectedTradeIds || new Set();
+  var mainCurr = typeof getMainCurrency === 'function' ? getMainCurrency() : 'USD';
+
+  var headerCheckbox = bulkMode ?
+    '<th style="padding:7px 8px;width:32px"><input type="checkbox" title="Select all" onchange="(function(cb){var cbs=document.querySelectorAll(\'[id^=tcb_]\');cbs.forEach(function(c){c.checked=cb.checked;var id=c.id.replace(\'tcb_\',\'\');if(cb.checked)_selectedTradeIds.add(id);else _selectedTradeIds.delete(id);});updateBulkDeleteBtn();})(this)"></th>' : '';
+
+  tblEl.innerHTML = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:' + (bulkMode?'980px':'940px') + '">' +
+    '<thead><tr style="background:var(--s2)">' + headerCheckbox +
+    ['Date','Ticker','Type','Strategy','Session','Emotion','Qty','Price','Curr','SL','TP','Notes',''].map(function(h,i){
+      return '<th style="font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.7px;padding:7px 8px;text-align:'+(i>=6&&i<12?'right':'left')+';font-weight:400;border-bottom:0.5px solid var(--b1);white-space:nowrap">' + h + '</th>';
+    }).join('') + '</tr></thead><tbody>' +
+    pt.map(function(t) {
+      var tradeCurr = t.currency || 'USD';
+      var diffCurr  = tradeCurr !== mainCurr;
+      var isSelected = selectedIds.has(t.id);
+      var cb = bulkMode ? '<td style="padding:7px 8px"><input type="checkbox" id="tcb_'+t.id+'"'+(isSelected?' checked':'')+' onchange="toggleTradeSelect(\''+t.id+'\')"></td>' : '';
+      return '<tr' + (isSelected?' style="background:rgba(57,255,154,.04)"':'') + '>' + cb +
+        '<td style="padding:7px 8px;color:var(--muted);white-space:nowrap">'+t.date+'</td>'+
+        '<td style="padding:7px 8px;font-weight:700">'+t.ticker+'</td>'+
+        '<td style="padding:7px 8px"><span class="badge '+t.type+'">'+t.type.toUpperCase()+'</span></td>'+
+        '<td style="padding:7px 8px"><span class="tag strat">'+(t.strategy||'—')+'</span></td>'+
+        '<td style="padding:7px 8px"><span class="tag sess">'+(t.session||'—')+'</span></td>'+
+        '<td style="padding:7px 8px;color:'+(t.emotion==='Revenge'||t.emotion==='FOMO'?'var(--red)':'var(--muted2)')+'">'+( t.emotion||'—')+'</td>'+
+        '<td style="padding:7px 8px;text-align:right">'+fmt(t.qty,2)+'</td>'+
+        '<td style="padding:7px 8px;text-align:right">'+sym+fmt(t.price)+'</td>'+
+        '<td style="padding:7px 8px;text-align:right"><span style="font-size:9px;color:'+(diffCurr?'var(--blue)':'var(--muted)')+'">'+tradeCurr+'</span></td>'+
+        '<td style="padding:7px 8px;text-align:right;color:var(--red)">'+(t.sl?sym+fmt(t.sl):'—')+'</td>'+
+        '<td style="padding:7px 8px;text-align:right;color:var(--teal)">'+(t.tp?sym+fmt(t.tp):'—')+'</td>'+
+        '<td style="padding:7px 8px;color:var(--muted);max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(t.notes||'—')+'</td>'+
+        '<td style="padding:7px 8px;text-align:right;white-space:nowrap">'+
+          '<button style="background:var(--s3);border:0.5px solid var(--b2);color:var(--muted2);padding:3px 7px;border-radius:3px;font-size:9px;cursor:pointer;font-family:var(--mono);margin-right:2px"'+
+          ' onmouseover="this.style.color=\'var(--accent)\';this.style.borderColor=\'var(--accent)\'"'+
+          ' onmouseout="this.style.color=\'var(--muted2)\';this.style.borderColor=\'var(--b2)\'"'+
+          ' onclick="openTradeModalEdit(\''+t.id+'\')">✎</button>'+
+          '<button style="background:var(--s3);border:0.5px solid var(--b2);color:var(--muted2);padding:3px 7px;border-radius:3px;font-size:9px;cursor:pointer;font-family:var(--mono)"'+
+          ' onmouseover="this.style.color=\'var(--red)\';this.style.borderColor=\'var(--red)\'"'+
+          ' onmouseout="this.style.color=\'var(--muted2)\';this.style.borderColor=\'var(--b2)\'"'+
+          ' onclick="quickDeleteTrade(\''+t.id+'\')">✕</button>'+
+        '</td></tr>';
+    }).join('') + '</tbody></table></div>';
+};
+
+/* ── Bulk delete helpers ── */
+window._bulkMode = false;
+window._selectedTradeIds = new Set();
+
+function toggleBulkMode() {
+  window._bulkMode = !window._bulkMode;
+  window._selectedTradeIds = new Set();
+  var btn = document.getElementById('bulk-mode-btn');
+  var delBtn = document.getElementById('bulk-del-btn');
+  if (btn) btn.textContent = window._bulkMode ? '✕ Cancel' : '☑ Select';
+  if (delBtn) delBtn.style.display = 'none';
+  renderTrades();
+}
+
+function toggleTradeSelect(id) {
+  if (window._selectedTradeIds.has(id)) window._selectedTradeIds.delete(id);
+  else window._selectedTradeIds.add(id);
+  var cb = document.getElementById('tcb_' + id);
+  if (cb) cb.checked = window._selectedTradeIds.has(id);
+  updateBulkDeleteBtn();
+}
+
+function updateBulkDeleteBtn() {
+  var delBtn = document.getElementById('bulk-del-btn');
+  if (!delBtn) return;
+  var n = window._selectedTradeIds.size;
+  delBtn.style.display = n > 0 ? 'block' : 'none';
+  delBtn.textContent = '✕ Delete ' + n + ' selected';
+}
+
+function bulkDeleteTrades() {
+  var ids = Array.from(window._selectedTradeIds);
+  if (!ids.length) return;
+  if (!confirm('Delete ' + ids.length + ' selected trade' + (ids.length>1?'s':'') + '?')) return;
+  trades = trades.filter(function(t) { return !window._selectedTradeIds.has(t.id); });
+  window._selectedTradeIds = new Set();
+  window._bulkMode = false;
+  var btn = document.getElementById('bulk-mode-btn'); if (btn) btn.textContent = '☑ Select';
+  var delBtn = document.getElementById('bulk-del-btn'); if (delBtn) delBtn.style.display = 'none';
+  save(); renderAll(); setTimeout(refreshOpenPositions, 300);
+}
+
+function clearTradeFilters() {
+  ['tf-filter-strat','tf-filter-type','tf-filter-emotion','tf-filter-from','tf-filter-to','tf-filter-search'].forEach(function(id) {
+    var el = document.getElementById(id); if (el) el.value = '';
+  });
+  renderTrades();
+}
+
+function applyTradeFilters() { renderTrades(); }
+
+/* ── refreshOpenPositions: single definitive version ── */
+refreshOpenPositions = async function() {
+  var p = activePort(); if (!p) return;
+  var container = document.getElementById('open-positions');
+  var cntEl     = document.getElementById('op-count');
+  if (!container) return;
+
+  // Build holdings with per-buy breakdown
+  var costMap = {};
+  portTrades(p.id).slice().sort(function(a,b){return a.date.localeCompare(b.date);}).forEach(function(t) {
+    var k = t.ticker.toUpperCase();
+    if (!costMap[k]) costMap[k] = {ticker:k, qty:0, cost:0, buys:[], sector:t.sector||''};
+    if (t.type === 'buy') {
+      costMap[k].qty  += t.qty;
+      costMap[k].cost += t.qty * t.price;
+      costMap[k].buys.push({date:t.date, qty:t.qty, price:t.price});
+    } else {
+      var sell = Math.min(t.qty, costMap[k].qty);
+      var ratio = costMap[k].qty > 0 ? sell/costMap[k].qty : 0;
+      costMap[k].cost *= (1 - ratio);
+      costMap[k].qty   = Math.max(0, costMap[k].qty - sell);
+    }
+  });
+  var holdings = Object.values(costMap).filter(function(h){return h.qty > 0.001;});
+
+  if (!holdings.length) {
+    container.innerHTML = '<div style="text-align:center;padding:16px;color:var(--muted);font-size:11px">No open positions. Record a Buy trade to create a position.</div>';
+    if (cntEl) cntEl.textContent = '';
+    window._currentTotalValue = 0; window._currentTotalCost = 0;
+    return;
+  }
+
+  if (cntEl) cntEl.textContent = '(' + holdings.length + ')';
+  container.innerHTML = '<div style="font-size:9px;color:var(--muted);padding:6px 0">Fetching prices…</div>';
+
+  // Fetch via Alpaca (primary) or Yahoo (fallback)
+  var live = null;
+  var syms = holdings.map(function(h){return h.ticker;}).join(',');
+  var alpKey    = localStorage.getItem('alp_key')    || '';
+  var alpSecret = localStorage.getItem('alp_secret') || '';
+
+  if (alpKey && alpSecret) {
+    try {
+      var r = await fetch('https://data.alpaca.markets/v2/stocks/trades/latest?symbols='+syms+'&feed=iex', {
+        headers:{'APCA-API-KEY-ID':alpKey,'APCA-API-SECRET-KEY':alpSecret},
+        signal: AbortSignal.timeout(7000)
+      });
+      if (r.ok) {
+        var d = await r.json();
+        var trd = d.trades || {};
+        if (Object.keys(trd).length) {
+          live = {};
+          Object.keys(trd).forEach(function(sym){if(trd[sym]&&trd[sym].p)live[sym]={price:trd[sym].p,chg:0};});
+        }
+      }
+    } catch(e){}
+  }
+
+  if (!live) {
+    var proxies = [
+      'https://api.allorigins.win/get?url='+encodeURIComponent('https://query1.finance.yahoo.com/v8/finance/quote?symbols='+syms)+'&t='+Date.now(),
+      'https://corsproxy.io/?'+encodeURIComponent('https://query1.finance.yahoo.com/v7/finance/quote?symbols='+syms)
+    ];
+    for (var pi=0; pi<proxies.length && !live; pi++) {
+      try {
+        var resp = await fetch(proxies[pi], {signal:AbortSignal.timeout(6000)});
+        if (!resp.ok) continue;
+        var j = await resp.json();
+        var raw = j.contents || j.body || JSON.stringify(j);
+        var parsed = typeof raw==='string' ? JSON.parse(raw) : raw;
+        var res = (parsed&&parsed.quoteResponse&&parsed.quoteResponse.result)||[];
+        if (res.length) {
+          live = {};
+          res.forEach(function(q){if(q.regularMarketPrice)live[q.symbol]={price:q.regularMarketPrice,chg:q.regularMarketChangePercent||0};});
+        }
+      } catch(e){}
+    }
+  }
+
+  var sym = typeof getCurrencySymbol==='function'?getCurrencySymbol():'$';
+  var totalValue=0, totalCost=0;
+  var rows = holdings.map(function(h) {
+    var avgCost  = h.qty>0 ? h.cost/h.qty : 0;
+    var liveData = live && live[h.ticker];
+    var curPrice = liveData ? liveData.price : avgCost;
+    var dayChg   = liveData ? liveData.chg   : null;
+    var value    = h.qty * curPrice;
+    var uPnL     = (curPrice - avgCost) * h.qty;
+    var uPct     = avgCost ? (curPrice-avgCost)/avgCost*100 : 0;
+    totalValue  += value;
+    totalCost   += h.cost;
+    return {h:h, avgCost:avgCost, curPrice:curPrice, dayChg:dayChg, value:value, uPnL:uPnL, uPct:uPct, hasLive:!!liveData};
+  });
+  rows.forEach(function(r){r.alloc=totalValue>0?r.value/totalValue*100:0;});
+
+  // Apply grouping
+  var posMode = localStorage.getItem('pos_group_mode')||'none';
+  if (posMode==='sector')  rows.forEach(function(r){r.h._group=(_SECTOR_MAP&&_SECTOR_MAP[r.h.ticker])||'Other';});
+  else if (posMode==='theme')  rows.forEach(function(r){var g='Other';if(_THEME_MAP)Object.keys(_THEME_MAP).forEach(function(t){if(_THEME_MAP[t].indexOf(r.h.ticker)!==-1)g=t;});r.h._group=g;});
+  else if (posMode==='beta')  rows.forEach(function(r){var b=(_BETA&&_BETA[r.h.ticker])||1;r.h._group=b>=1.8?'High Beta (>1.8)':b>=1.2?'Mid Beta (1.2–1.8)':'Low Beta (<1.2)';});
+  else if (posMode==='manual'){var mg={};try{mg=JSON.parse(localStorage.getItem('td_pos_groups')||'{}');}catch(e){}rows.forEach(function(r){r.h._group=mg[r.h.ticker]||'';});}
+  else rows.forEach(function(r){r.h._group='';});
+
+  if (posMode!=='none') rows.sort(function(a,b){return (a.h._group||'zzz').localeCompare(b.h._group||'zzz')||b.value-a.value;});
+  else rows.sort(function(a,b){return b.value-a.value;});
+
+  var liveMsg = live
+    ? '<span class="live-dot"></span>Live' + (alpKey?(' via Alpaca'):' via Yahoo') + ' · '+new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})
+    : (alpKey?'<span style="color:var(--amber)">⚠ Price fetch failed — showing avg cost. <button onclick="refreshOpenPositions()" style="background:none;border:none;color:var(--amber);cursor:pointer;text-decoration:underline;font-size:9px">Retry</button></span>':'<span style="color:var(--amber)">⚠ Add Alpaca keys in Settings for live prices</span>');
+
+  // Build table
+  var lastGroup = null;
+  var rowsHtml = rows.map(function(r) {
+    var pnlCol = r.uPnL>=0?'var(--accent)':'var(--red)';
+    var dayCol = r.dayChg!=null?(r.dayChg>=0?'var(--accent)':'var(--red)'):'var(--muted)';
+    var grpLabel = r.h._group||'';
+    var isManual = posMode==='manual';
+
+    var groupHdr = '';
+    if (posMode!=='none' && grpLabel!==lastGroup) {
+      lastGroup = grpLabel;
+      groupHdr = '<tr style="background:rgba(198,120,255,.08)"><td colspan="7" style="padding:5px 8px;font-size:9px;font-weight:600;color:var(--purple);text-transform:uppercase;letter-spacing:.8px">'+(grpLabel||'Ungrouped')+'</td></tr>';
+    }
+
+    var buyRows = r.h.buys.map(function(b){
+      return '<tr style="background:rgba(0,0,0,.15)"><td style="padding:3px 8px;font-size:9px;color:var(--muted)">'+b.date+'</td>'+
+        '<td colspan="2" style="padding:3px 8px;font-size:9px;color:var(--muted2)">'+fmt(b.qty,3)+' × '+sym+fmt(b.price)+'</td>'+
+        '<td colspan="4" style="padding:3px 8px;font-size:9px;color:var(--muted);text-align:right">'+sym+fmt(b.qty*b.price,0)+'</td></tr>';
+    }).join('');
+
+    var tickerCell = r.h.ticker + (isManual?'<br><span onclick="openGroupEditor(\''+r.h.ticker+'\',\''+grpLabel.replace(/'/g,"\\'")+'\')" style="font-size:8px;color:var(--purple);cursor:pointer">'+(grpLabel||'+ group')+'</span>':'');
+
+    return groupHdr +
+    '<tr style="border-bottom:0.5px solid var(--b1);cursor:pointer" onclick="(function(tr){var id=tr.dataset.tkr;var tb=document.getElementById(\'bh_\'+id);if(tb)tb.style.display=tb.style.display===\'none\'?\'table-row-group\':\'none\';})(this)" data-tkr="'+r.h.ticker+'">' +
+      '<td style="padding:8px 8px 8px 0;font-size:13px;font-weight:700">'+tickerCell+'</td>' +
+      '<td style="padding:8px;font-size:10px">'+sym+fmt(r.avgCost)+'<br><span style="font-size:9px;color:var(--muted)">'+fmt(r.h.qty,r.h.qty<1?4:2)+' sh · '+r.h.buys.length+' lot'+(r.h.buys.length>1?'s':'')+'</span></td>' +
+      '<td style="padding:8px;text-align:right;font-size:11px">'+(r.hasLive?'<b>'+sym+fmt(r.curPrice)+'</b>':'<span style="color:var(--muted)">—</span>')+'</td>' +
+      '<td style="padding:8px;text-align:right;font-size:12px;font-weight:700">'+sym+fmt(r.value,0)+'</td>' +
+      '<td style="padding:8px;text-align:right"><span style="font-size:12px;font-weight:700;color:'+pnlCol+'">'+(r.uPnL>=0?'+':'')+sym+fmt(Math.abs(r.uPnL),0)+'</span><br><span style="font-size:9px;color:'+pnlCol+'">'+(r.uPct>=0?'+':'')+r.uPct.toFixed(1)+'%</span></td>' +
+      '<td style="padding:8px;text-align:right;font-size:10px;color:'+dayCol+'">'+(r.dayChg!=null?(r.dayChg>=0?'+':'')+r.dayChg.toFixed(2)+'%':'—')+'</td>' +
+      '<td style="padding:8px;text-align:right;font-size:10px;color:var(--muted)">'+r.alloc.toFixed(1)+'%</td>' +
+    '</tr>' +
+    '<tbody id="bh_'+r.h.ticker+'" style="display:none">'+buyRows+
+      '<tr style="background:rgba(0,0,0,.15)"><td colspan="7" style="padding:3px 8px 5px;font-size:9px;color:var(--muted)">Total: '+sym+fmt(r.h.cost,0)+' · Avg: '+sym+fmt(r.avgCost)+'</td></tr>'+
+    '</tbody>';
+  }).join('');
+
+  var totalPnL = rows.reduce(function(s,r){return s+r.uPnL;},0);
+  container.innerHTML =
+    '<div style="font-size:9px;color:var(--muted);margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">' +
+      '<span>'+liveMsg+'</span>' +
+      '<select id="pos-group-mode" onchange="setPosGroupMode(this.value)" style="background:var(--s2);border:0.5px solid var(--b2);border-radius:4px;padding:2px 7px;color:var(--text);font-family:var(--mono);font-size:9px;outline:none">'+
+        ['none:No grouping','sector:By sector','theme:By theme','beta:By beta','manual:Manual labels'].map(function(o){var p2=o.split(':');return'<option value="'+p2[0]+'"'+(posMode===p2[0]?' selected':'')+'>'+p2[1]+'</option>';}).join('')+
+      '</select>'+
+    '</div>' +
+    '<table style="width:100%;border-collapse:collapse;table-layout:fixed">' +
+      '<colgroup><col style="width:72px"><col style="width:auto"><col style="width:80px"><col style="width:80px"><col style="width:115px"><col style="width:64px"><col style="width:52px"></colgroup>' +
+      '<thead><tr style="border-bottom:1px solid var(--b2);background:var(--s1)">' +
+      ['Ticker','Avg / Qty','Live','Value','Unreal P&L','Day%','Alloc'].map(function(h2,i){return '<th style="font-size:8px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);padding:5px 8px;text-align:'+(i>1?'right':'left')+';font-weight:400">'+h2+'</th>';}).join('')+
+      '</tr></thead><tbody>'+rowsHtml+'</tbody>' +
+      '<tfoot><tr style="border-top:1px solid var(--b2);background:var(--s1)">' +
+        '<td style="padding:6px 0;font-size:10px;font-weight:700;color:var(--muted2)">TOTAL</td><td></td><td></td>'+
+        '<td style="padding:6px 8px;text-align:right;font-size:12px;font-weight:700">'+sym+fmt(totalValue,0)+'</td>'+
+        '<td style="padding:6px 8px;text-align:right;font-size:12px;font-weight:700;color:'+(totalPnL>=0?'var(--accent)':'var(--red)')+'\">'+(totalPnL>=0?'+':'')+sym+fmt(Math.abs(totalPnL),0)+'</td>'+
+        '<td></td><td style="padding:6px 8px;text-align:right;font-size:9px;color:var(--muted)">100%</td>'+
+      '</tr></tfoot>'+
+    '</table>';
+
+  window._currentTotalValue = totalValue;
+  window._currentTotalCost  = totalCost;
+};
+
+function setPosGroupMode(mode) {
+  localStorage.setItem('pos_group_mode', mode);
+  refreshOpenPositions();
+}
+
+/* ── loadAlpacaData: fix to call btInitSession on success ── */
+loadAlpacaData = async function() {
+  var sym    = (document.getElementById('bt-symbol')||{value:'AAPL'}).value.trim().toUpperCase() || 'AAPL';
+  var tf     = (document.getElementById('bt-tf')||{value:'5Min'}).value;
+  var limit  = parseInt((document.getElementById('bt-limit')||{value:100}).value) || 100;
+  var key    = localStorage.getItem('alp_key')    || '';
+  var secret = localStorage.getItem('alp_secret') || '';
+  var st     = document.getElementById('bt-fetch-status');
+
+  if (!key || !secret) {
+    if (st) st.innerHTML = '<span style="color:var(--amber)">Add Alpaca keys in Settings first.</span>';
+    loadSimulatedData();
+    return;
+  }
+  if (st) st.innerHTML = '<span style="color:var(--muted)">Loading ' + sym + '…</span>';
+
+  try {
+    var end   = new Date().toISOString();
+    var start = new Date(Date.now() - 365*24*3600*1000).toISOString();
+    var url   = 'https://data.alpaca.markets/v2/stocks/'+sym+'/bars?timeframe='+tf+'&start='+start+'&end='+end+'&limit='+limit+'&adjustment=raw&feed=iex';
+    var r = await fetch(url, {
+      headers: {'APCA-API-KEY-ID':key, 'APCA-API-SECRET-KEY':secret},
+      signal: AbortSignal.timeout(12000)
+    });
+    if (!r.ok) {
+      var err = await r.json().catch(function(){return {};});
+      throw new Error(err.message || 'HTTP ' + r.status);
+    }
+    var data = await r.json();
+    if (!data.bars || !data.bars.length) throw new Error('No data returned for ' + sym + '. Try a different symbol or timeframe.');
+
+    btAllCandles = data.bars.map(function(b){return{t:b.t,o:b.o,h:b.h,l:b.l,c:b.c,v:b.v};});
+    if (st) st.innerHTML = '<span style="color:var(--accent)">✓ Loaded ' + btAllCandles.length + ' real bars — ' + sym + ' (' + tf + ')</span>';
+    btInitSession();
+
+  } catch(e) {
+    if (st) st.innerHTML = '<span style="color:var(--red)">Error: ' + e.message + ' — using simulated data</span>';
+    loadSimulatedData();
+  }
+};
+
+/* ── Wire nav for pages added dynamically ── */
+(function wireNewPages() {
+  document.querySelectorAll('.ni').forEach(function(item) {
+    // Remove existing listeners by cloning (cleanest approach)
+    var newItem = item.cloneNode(true);
+    item.parentNode.replaceChild(newItem, item);
+  });
+  document.querySelectorAll('.ni').forEach(function(item) {
+    item.addEventListener('click', function() {
+      document.querySelectorAll('.ni').forEach(function(n){n.classList.remove('active');});
+      document.querySelectorAll('.page').forEach(function(pg){pg.classList.remove('active');});
+      item.classList.add('active');
+      var pg = item.dataset.page;
+      var pageEl = document.getElementById('page-'+pg);
+      if (!pageEl) return;
+      pageEl.classList.add('active');
+      if (pg==='analytics')  renderAnalytics();
+      if (pg==='targets')    renderTargets();
+      if (pg==='strategies') renderStrategies();
+      if (pg==='calendar')   renderCalendar();
+      if (pg==='trades')     { renderTrades(); }
+      if (pg==='import')     renderImportPort();
+      if (pg==='notes')      setTimeout(renderNotes,50);
+      if (pg==='settings')   setTimeout(loadSettingsUI,50);
+      if (pg==='simulator')  setTimeout(updateSimParams,50);
+      if (pg==='backtest')   setTimeout(function(){if(btAllCandles&&btAllCandles.length)btDrawChart();else loadSimulatedData();},80);
+      if (pg==='calculator') setTimeout(calcPosition,60);
+    });
+  });
+})();
+
+/* ── atabs re-wire ── */
+document.querySelectorAll('#atabs .tab').forEach(function(tab) {
+  tab.addEventListener('click', function() {
+    document.querySelectorAll('#atabs .tab').forEach(function(t){t.classList.remove('active');});
+    tab.classList.add('active');
+    if (tab.dataset.tab==='plotter') setTimeout(renderPlotter,10);
+    else renderAnalytics();
+  });
+});
+
+/* ── modal backdrop close ── */
+['port-modal','trade-modal','target-modal','note-modal','account-modal','accounts-settings-modal','cash-modal'].forEach(function(id){
+  var el = document.getElementById(id);
+  if (el) el.addEventListener('click', function(e){
+    if (e.target===el) {
+      el.classList.remove('open');
+      if (id==='trade-modal') { window._editingTradeId=null; }
+    }
+  });
+});
+
+/* ── ai input enter key ── */
+var aiInp = document.getElementById('ai-input');
+if (aiInp) aiInp.addEventListener('keydown', function(e){if(e.key==='Enter')askAICustom();});
+var stInp = document.getElementById('settings-test-q');
+if (stInp) stInp.addEventListener('keydown', function(e){if(e.key==='Enter')testAIFromSettings();});
 
 </script>
 
