@@ -2136,11 +2136,24 @@ function renderAll(){
 }
 
 /* ─── INIT + SEED DATA ─── */
-load();
+// Minimal flat load for any legacy data (calendars, targets etc.)
+try { load(); } catch(e) {}
 
-
-
-renderAll();
+// Boot account system — this populates _accounts, _activeAccountId,
+// portfolios, trades, and seeds demo data on first run
+(function bootApp() {
+  try {
+    _loadAccounts();      // reads td_accounts from localStorage
+    _loadAccountData();   // reads scoped trades/portfolios, seeds if empty
+    if (typeof renderAccountSelector === 'function') renderAccountSelector();
+  } catch(e) { console.error('Boot error:', e); }
+  renderAll();
+  setTimeout(function() {
+    if (typeof refreshOpenPositions === 'function') refreshOpenPositions();
+    if (typeof _updateSyncBar === 'function') _updateSyncBar();
+    if (typeof _renderCashPlanOnDashboard === 'function') _renderCashPlanOnDashboard();
+  }, 400);
+})();
 
 
 /* ═══════════════════════════════════════════════════════════════
