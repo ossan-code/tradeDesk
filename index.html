@@ -1530,6 +1530,17 @@ let weekChart=null,pnlChart=null;
 let calYear=new Date().getFullYear(),calMonth=new Date().getMonth();
 let selStrat=null;
 
+
+/* ─── CURRENCY (early defs to prevent boot crash) ─── */
+var CURRENCY_SYMBOLS = {USD:'$', EUR:'€', GBP:'£', TRY:'₺', CHF:'Fr', JPY:'¥', CAD:'CA$', AUD:'A$'};
+var CURRENCY_RATES = {USD:1, EUR:0.92, GBP:0.79, TRY:32.5, CHF:0.90, JPY:149.5, CAD:1.36, AUD:1.55};
+function getMainCurrency() { return localStorage.getItem('td_main_currency') || 'USD'; }
+function getCurrencySymbol() { return (CURRENCY_SYMBOLS && CURRENCY_SYMBOLS[getMainCurrency()]) || '$'; }
+try {
+  var _savedRates = JSON.parse(localStorage.getItem('td_currency_rates') || '{}');
+  Object.keys(_savedRates).forEach(function(k){ CURRENCY_RATES[k] = _savedRates[k]; });
+} catch(e) {}
+
 /* ─── UTILS ─── */
 const fmt=(n,d=2)=>n.toLocaleString('de-DE',{minimumFractionDigits:d,maximumFractionDigits:d});
 const fmtC=(n,sign=true)=>(n>=0&&sign?'+':'')+'\u20ac'+fmt(Math.abs(n));
@@ -1578,6 +1589,18 @@ function load(){
     const p=localStorage.getItem('td_ports'),t=localStorage.getItem('td_trades'),tg=localStorage.getItem('td_targets');
     if(p)portfolios=JSON.parse(p);if(t)trades=JSON.parse(t);if(tg)targets=JSON.parse(tg);
   }catch(e){}
+}
+
+/* save() — saves to flat keys AND account-scoped keys when account system is ready */
+function save() {
+  try {
+    localStorage.setItem('td_ports', JSON.stringify(portfolios));
+    localStorage.setItem('td_trades', JSON.stringify(trades));
+    localStorage.setItem('td_targets', JSON.stringify(targets));
+    if (typeof _saveAccountData === 'function' && _activeAccountId) {
+      _saveAccountData();
+    }
+  } catch(e) { console.error('save error:', e); }
 }
 
 /* ─── PORT LIST ─── */
@@ -1962,19 +1985,27 @@ function runImport(){
 
   lines.forEach(function(line) {
     var parts = parseCSVLine(line);
-    // Detect header row
+    // Detect header row (only for first line)
     if (!hdr) {
       var lower = parts.map(function(p){return p.toLowerCase();});
-      if (lower[0] === 'action' && lower[1] === 'time' && lower.includes('ticker')) {
+      // Trading 212 header
+      if (lower[0] === 'action' && lower[1] === 'time' && lower.indexOf('ticker') !== -1) {
         format = 'trading212';
         hdr = parts;
         return;
       }
-      if (isNaN(parseFloat(parts[0])) || lower.includes('date') || lower.includes('ticker') || lower.includes('symbol')) {
+      // Generic CSV with header keywords
+      var hasHeaderKeyword = lower.indexOf('date') !== -1 || lower.indexOf('ticker') !== -1 || lower.indexOf('symbol') !== -1 || lower.indexOf('type') !== -1;
+      var firstIsDate = /^\d{4}-\d{2}-\d{2}/.test(parts[0]);
+      if (hasHeaderKeyword && !firstIsDate) {
         format = 'generic';
         hdr = parts;
         return;
       }
+      // No header — treat as data, use empty hdr marker
+      format = 'generic';
+      hdr = ['date','ticker','type','qty','price','strategy','sector','notes','currency'];
+      // Don't return — fall through to parse this line as data
     }
 
     var tradeData = null;
@@ -2572,17 +2603,21 @@ function _saveAccountData() {
   localStorage.setItem('td_targets_' + id, JSON.stringify(targets));
 }
 
-// Override save() to use account-scoped keys
-var _origSave = save;
-save = function() { _saveAccountData(); };
+// save() is now defined above and calls _saveAccountData when ready
 
-// Override loadNotes / saveNotes
-loadNotes = function() {
-  try { notes = JSON.parse(localStorage.getItem('td_notes_' + _activeAccountId) || '[]'); } catch(e) { notes = []; }
-};
-saveNotes = function() {
-  try { localStorage.setItem('td_notes_' + _activeAccountId, JSON.stringify(notes)); } catch(e) {}
-};
+// loadNotes / saveNotes — account-scoped when ready
+function loadNotes() {
+  try {
+    var key = _activeAccountId ? 'td_notes_' + _activeAccountId : 'td_notes';
+    notes = JSON.parse(localStorage.getItem(key) || '[]');
+  } catch(e) { notes = []; }
+}
+function saveNotes() {
+  try {
+    var key = _activeAccountId ? 'td_notes_' + _activeAccountId : 'td_notes';
+    localStorage.setItem(key, JSON.stringify(notes));
+  } catch(e) {}
+}
 
 // ── Render account selector in sidebar ──────────────────────
 function renderAccountSelector() {
@@ -3914,6 +3949,7 @@ function btUpdateVisibleRange(val) {
 
 /* Patch btInitSession to init the nav bar */
 (function patchBtInit2() {
+  var _orig = typeof btInitSession === 'function' ? btInitSession : null;
   if (_orig) {
     btInitSession = function() {
       _orig();
