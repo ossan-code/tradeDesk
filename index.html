@@ -660,8 +660,17 @@ input[type="text"],input[type="number"],input[type="date"],input[type="time"],in
   <div class="g4" id="dash-metrics" style="grid-template-columns:repeat(5,1fr)"></div>
   <div class="g2">
     <div><div class="box"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><div class="box-t" style="margin:0"><span class="live-dot"></span>Open positions <span id="op-count" style="color:var(--muted2);font-weight:400;text-transform:none;letter-spacing:0;margin-left:4px"></span></div><div style="display:flex;gap:6px"><button class="refresh-btn" onclick="openCashModal()" title="Deposit or withdraw cash" style="color:var(--blue);border-color:rgba(123,140,255,.3)">💵 Cash</button><button class="refresh-btn" onclick="openCashPlanModal()" title="Plan future allocations" style="color:var(--purple,#c678ff);border-color:rgba(198,120,255,.3)">📊 Plan</button><button class="refresh-btn" onclick="refreshOpenPositions()" title="Refresh prices">⟳ Refresh</button></div></div><div id="open-positions"></div></div></div>
-    <div><div class="box"><div class="box-t">This week P&amp;L</div><div style="position:relative;height:130px"><canvas id="week-canvas"></canvas></div></div><div class="box" style="margin-top:10px"><div class="box-t">Allocation by holding</div><div id="alloc-bars"></div>
-<div id="cash-plan-display" style="display:none;margin-top:12px;padding-top:10px;border-top:0.5px solid var(--border)"></div></div></div>
+    <div><div class="box"><div class="box-t">This week P&amp;L</div><div style="position:relative;height:130px"><canvas id="week-canvas"></canvas></div></div><div class="box" style="margin-top:10px"><div class="box-t">Allocation by holding</div><div id="alloc-bars"></div></div></div>
+  </div>
+  <!-- Cash Allocation Plan — standalone box -->
+  <div class="box" style="margin-bottom:14px" id="cash-plan-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div class="box-t" style="margin:0">&#128200; Cash allocation plan</div>
+      <div style="display:flex;gap:6px">
+        <button class="refresh-btn" onclick="openCashPlanModal()" title="Edit allocation plan" style="color:var(--purple,#c678ff);border-color:rgba(198,120,255,.3)">&#9998; Edit plan</button>
+      </div>
+    </div>
+    <div id="cash-plan-display"></div>
   </div>
   <div class="sh"><div class="st">Recent trades</div></div>
   <div class="tw" id="dash-recent"></div>
@@ -2098,10 +2107,23 @@ function savePM(){
   save();closePM();renderAll();
 }
 function deletePort(){
-  if(!_editPid||portfolios.length<=1)return;
-  if(!confirm('Delete this portfolio and ALL its trades? This cannot be undone.'))return;
-  trades=trades.filter(t=>t.portId!==_editPid);portfolios=portfolios.filter(p=>p.id!==_editPid);
-  activePortId=portfolios[0].id;save();closePM();renderAll();
+  if(!_editPid){ alert('No portfolio selected for deletion. Click a portfolio to edit it first.'); return; }
+  var pf = portfolios.find(function(p){return p.id===_editPid;});
+  if (!pf) { alert('Portfolio not found.'); return; }
+  var tradesInPort = trades.filter(function(t){return t.portId===_editPid;}).length;
+  var msg = 'Delete portfolio "' + pf.name + '" and ALL its ' + tradesInPort + ' trade(s)? This cannot be undone.';
+  if (portfolios.length <= 1) msg += '\n\nA new empty "Main" portfolio will be created since you need at least one.';
+  if(!confirm(msg)) return;
+  trades = trades.filter(function(t){return t.portId!==_editPid;});
+  portfolios = portfolios.filter(function(p){return p.id!==_editPid;});
+  if (!portfolios.length) {
+    portfolios = [{ id: uid(), name: 'Main', desc: 'Main portfolio', color: '#39ff9a' }];
+  }
+  activePortId = portfolios[0].id;
+  _editPid = null;
+  save();
+  closePM();
+  renderAll();
 }
 
 /* ─── TRADE MODAL ─── */
@@ -2164,6 +2186,7 @@ function renderAll(){
   if(document.getElementById('page-analytics').classList.contains('active'))renderAnalytics();
   if(document.getElementById('page-targets').classList.contains('active'))renderTargets();
   if(document.getElementById('page-calendar').classList.contains('active'))renderCalendar();
+  if(typeof _renderCashPlanOnDashboard==='function')_renderCashPlanOnDashboard();
 }
 
 /* ─── INIT + SEED DATA ─── */
@@ -2559,8 +2582,10 @@ function _loadAccountData() {
     targets    = tg ? JSON.parse(tg) : { profit:500, loss:200, maxTrades:5, minRR:2 };
   } catch(e) {}
 
-  // Seed demo data if this account has no portfolios yet
-  if (!portfolios.length) {
+  // Seed demo data ONLY for the very first Default Account (one-time, first launch ever)
+  var _isFirstLaunch = !localStorage.getItem('td_first_seed_done');
+  if (!portfolios.length && _isFirstLaunch) {
+    localStorage.setItem('td_first_seed_done', '1');
     portfolios=[
       {id:uid(),name:'Long term',desc:'Core holdings',color:'#c8f06c'},
       {id:uid(),name:'Swing trade',desc:'Days to weeks',color:'#6cf0b8'},
@@ -2588,6 +2613,11 @@ function _loadAccountData() {
       trades.push({id:uid(),portId:_pid,ticker:_ticker,type:'buy',qty:_qty,price:parseFloat(_bp.toFixed(2)),date:_dt,strategy:_st,session:_sess[Math.floor(Math.random()*_sess.length)],emotion:_em,sl:parseFloat((_bp*0.98).toFixed(2)),tp:parseFloat((_bp*1.06).toFixed(2)),notes:'',currency:'USD'});
       if(_won){trades.push({id:uid(),portId:_pid,ticker:_ticker,type:'sell',qty:_qty,price:parseFloat(_sp.toFixed(2)),date:_d(_daysAgo-Math.floor(Math.random()*5+1)),strategy:_st,session:_sess[Math.floor(Math.random()*_sess.length)],emotion:_em,sl:null,tp:null,notes:'',currency:'USD'});}
     }
+    _saveAccountData();
+  }
+  // For non-first-launch accounts with no portfolios, create an empty Main portfolio
+  if (!portfolios.length) {
+    portfolios = [{ id: uid(), name: 'Main', desc: 'Main portfolio', color: '#39ff9a' }];
     _saveAccountData();
   }
   if (!activePortId || !portfolios.find(function(p){return p.id===activePortId;})) {
@@ -2707,8 +2737,17 @@ function saveAccount() {
     var newId = 'acc_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
     _accounts.push({ id:newId, name:name, desc:desc, cash:cash, color:_afSelColor, created:Date.now() });
     _activeAccountId = newId;
-    portfolios=[]; trades=[]; targets={profit:500,loss:200,maxTrades:5,minRR:2}; notes=[];
-    _loadAccountData(); // creates default portfolio
+    // Fresh empty account — single empty portfolio, no trades
+    portfolios = [{ id: uid(), name: 'Main', desc: 'Main portfolio', color: _afSelColor }];
+    trades = [];
+    targets = { profit:500, loss:200, maxTrades:5, minRR:2 };
+    notes = [];
+    activePortId = portfolios[0].id;
+    // Save the empty account data directly (skip _loadAccountData which would seed)
+    localStorage.setItem('td_ports_'+newId, JSON.stringify(portfolios));
+    localStorage.setItem('td_trades_'+newId, JSON.stringify(trades));
+    localStorage.setItem('td_targets_'+newId, JSON.stringify(targets));
+    localStorage.setItem('td_notes_'+newId, JSON.stringify(notes));
   }
   _saveAccountsMeta();
   closeAccountModal();
@@ -2855,14 +2894,31 @@ function _updateSyncBar() {
 }
 
 function _allData() {
-  // Collect everything from all accounts
-  var data = { version: 2, savedAt: Date.now(), accounts: _accounts, activeAccountId: _activeAccountId, accountData: {} };
+  var data = {
+    version: 3,
+    savedAt: Date.now(),
+    accounts: _accounts,
+    activeAccountId: _activeAccountId,
+    accountData: {},
+    // App-wide settings (shared across accounts)
+    settings: {
+      mainCurrency: localStorage.getItem('td_main_currency') || 'USD',
+      currencyRates: localStorage.getItem('td_currency_rates') || '{}',
+      aiProvider: localStorage.getItem('td_ai_provider') || 'groq',
+      groqModel: localStorage.getItem('td_groq_model') || 'llama-3.3-70b-versatile',
+      theme: localStorage.getItem('td_theme') || 'dark',
+      posGroupMode: localStorage.getItem('pos_group_mode') || 'none',
+      posGroups: localStorage.getItem('td_pos_groups') || '{}',
+      customStrategies: localStorage.getItem('td_custom_strategies') || '[]'
+    }
+  };
   _accounts.forEach(function(a) {
     data.accountData[a.id] = {
       ports:   JSON.parse(localStorage.getItem('td_ports_'+a.id)   || '[]'),
       trades:  JSON.parse(localStorage.getItem('td_trades_'+a.id)  || '[]'),
       targets: JSON.parse(localStorage.getItem('td_targets_'+a.id) || '{}'),
       notes:   JSON.parse(localStorage.getItem('td_notes_'+a.id)   || '[]'),
+      cashPlan:JSON.parse(localStorage.getItem('td_cash_plan_'+a.id) || '[]')
     };
   });
   return data;
@@ -2913,6 +2969,33 @@ function _restoreData(data) {
     if (d.notes   && d.notes.length >= 0)   localStorage.setItem('td_notes_'+a.id,   JSON.stringify(d.notes));
   });
   _loadAccountData();
+  // Restore app settings if present
+  if (data.settings) {
+    if (data.settings.mainCurrency)   localStorage.setItem('td_main_currency', data.settings.mainCurrency);
+    if (data.settings.currencyRates)  localStorage.setItem('td_currency_rates', data.settings.currencyRates);
+    if (data.settings.aiProvider)     localStorage.setItem('td_ai_provider', data.settings.aiProvider);
+    if (data.settings.groqModel)      localStorage.setItem('td_groq_model', data.settings.groqModel);
+    if (data.settings.theme)          localStorage.setItem('td_theme', data.settings.theme);
+    if (data.settings.posGroupMode)   localStorage.setItem('pos_group_mode', data.settings.posGroupMode);
+    if (data.settings.posGroups)      localStorage.setItem('td_pos_groups', data.settings.posGroups);
+    if (data.settings.customStrategies) localStorage.setItem('td_custom_strategies', data.settings.customStrategies);
+  }
+  // Restore API keys if present
+  if (data._apiKeys) {
+    try {
+      var keys = JSON.parse(atob(data._apiKeys));
+      Object.keys(keys).forEach(function(k) {
+        if (keys[k]) localStorage.setItem(k, keys[k]);
+      });
+    } catch(e) { console.warn('Could not restore API keys:', e); }
+  }
+  // Restore cash plans
+  if (data.accountData) {
+    Object.keys(data.accountData).forEach(function(accId) {
+      var d = data.accountData[accId];
+      if (d.cashPlan) localStorage.setItem('td_cash_plan_'+accId, JSON.stringify(d.cashPlan));
+    });
+  }
 }
 
 function _setSyncStatus(state, text) {
@@ -3680,19 +3763,33 @@ function restoreFromSyncBackup() {
    BACKUP & RESTORE
 ══════════════════════════════════════════════════════ */
 function exportFullBackup() {
+  var includeKeys = confirm('Include API keys in backup?\n\nYES = full backup with Alpaca/Groq/Anthropic keys (encrypted base64, but anyone with the file can read them).\n\nNO = data only — safer if sharing the backup.');
   var data = _allData();
   data._backupDate = new Date().toISOString();
-  data._version = 3;
+  if (includeKeys) {
+    var keys = {
+      alp_key:       localStorage.getItem('alp_key') || '',
+      alp_secret:    localStorage.getItem('alp_secret') || '',
+      td_groq_key:   localStorage.getItem('td_groq_key') || '',
+      td_anthropic_key: localStorage.getItem('td_anthropic_key') || '',
+      td_sync_gist_token: localStorage.getItem('td_sync_gist_token') || '',
+      td_sync_gist_id:    localStorage.getItem('td_sync_gist_id') || '',
+      td_sync_jsonbin_key:localStorage.getItem('td_sync_jsonbin_key') || '',
+      td_sync_jsonbin_id: localStorage.getItem('td_sync_jsonbin_id') || ''
+    };
+    // Base64 encode (mild obfuscation, not encryption)
+    try { data._apiKeys = btoa(JSON.stringify(keys)); } catch(e) {}
+  }
   var json = JSON.stringify(data, null, 2);
   var blob = new Blob([json], {type:'application/json'});
   var url  = URL.createObjectURL(blob);
   var a    = document.createElement('a');
   a.href   = url;
-  a.download = 'tradedesk-backup-' + new Date().toISOString().slice(0,10) + '.json';
+  a.download = 'tradedesk-backup-' + new Date().toISOString().slice(0,10) + '-' + (Date.now()%100000) + '.json';
   document.body.appendChild(a); a.click();
   setTimeout(function(){URL.revokeObjectURL(url);document.body.removeChild(a);},200);
   var st = document.getElementById('backup-status');
-  if(st) st.innerHTML = '<span style="color:var(--teal)">✓ Backup downloaded</span>';
+  if(st) st.innerHTML = '<span style="color:var(--teal,#39ff9a)">&check; Backup downloaded' + (includeKeys?' (with API keys)':' (data only)') + '</span>';
 }
 
 function importFullBackup(event) {
@@ -4728,26 +4825,49 @@ function saveCashPlan() {
 function _renderCashPlanOnDashboard() {
   var el = document.getElementById('cash-plan-display');
   if (!el) return;
-  var key = 'td_cash_plan_' + (typeof _activeAccountId !== 'undefined' ? _activeAccountId : '');
+  var key = 'td_cash_plan_' + (typeof _activeAccountId !== 'undefined' && _activeAccountId ? _activeAccountId : '');
   var plan = [];
   try { plan = JSON.parse(localStorage.getItem(key) || '[]'); } catch(e) {}
-  if (!plan.length) { el.style.display = 'none'; return; }
+  var validPlan = plan.filter(function(r){return r.ticker || (parseFloat(r.amount)||0) > 0;});
   var sym = typeof getCurrencySymbol === 'function' ? getCurrencySymbol() : '$';
-  el.style.display = 'block';
-  el.innerHTML = '<div style="font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted-2,#6b5a8a);margin-bottom:8px">📊 Cash allocation plan</div>' +
-    plan.filter(function(r){return r.ticker||r.amount;}).map(function(r) {
-      var available = _getCurrentCashBalance() || 1;
-      var pct = ((parseFloat(r.amount)||0) / available * 100).toFixed(1);
-      return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
-        '<div style="width:52px;font-size:10px;font-weight:700">' + (r.ticker||'—') + '</div>' +
-        '<div style="flex:1;height:5px;background:rgba(255,255,255,.06);border-radius:3px;overflow:hidden">' +
-          '<div style="width:' + Math.min(100,pct) + '%;height:100%;background:rgba(198,120,255,.6);border-radius:3px"></div>' +
-        '</div>' +
-        '<div style="width:32px;text-align:right;font-size:9px;color:var(--purple,#c678ff);font-weight:600">' + pct + '%</div>' +
-        '<div style="width:60px;text-align:right;font-size:9px;color:var(--muted-2)">' + sym + (parseFloat(r.amount)||0).toLocaleString('en',{maximumFractionDigits:0}) + '</div>' +
-        (r.note ? '<div style="font-size:9px;color:var(--muted-2);max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + r.note + '</div>' : '') +
-      '</div>';
-    }).join('');
+  var available = typeof _getCurrentCashBalance === 'function' ? _getCurrentCashBalance() : 0;
+
+  if (!validPlan.length) {
+    el.innerHTML = '<div style="text-align:center;padding:18px 12px;color:var(--muted-2,#6b5a8a);font-size:11px;line-height:1.7">' +
+      'No allocation plan yet.<br>' +
+      '<span style="font-size:10px">Plan how to deploy your ' + sym + Math.max(0,available).toLocaleString('en',{maximumFractionDigits:0}) + ' available cash across future positions.</span><br>' +
+      '<button class="btn" style="margin-top:10px;background:rgba(198,120,255,.15);border:0.5px solid rgba(198,120,255,.35);color:var(--purple,#c678ff)" onclick="openCashPlanModal()">+ Create allocation plan</button>' +
+    '</div>';
+    return;
+  }
+
+  // Summary row
+  var totalPlanned = validPlan.reduce(function(s,r){return s + (parseFloat(r.amount)||0);},0);
+  var remaining = available - totalPlanned;
+  var summaryHTML =
+    '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;padding:10px;background:var(--surface-2,rgba(255,255,255,.02));border-radius:6px">' +
+      '<div><div style="font-size:8px;color:var(--muted-2,#6b5a8a);text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px">Available</div><div style="font-size:14px;font-weight:700;color:var(--blue,#7b8cff)">' + sym + Math.max(0,available).toLocaleString('en',{maximumFractionDigits:0}) + '</div></div>' +
+      '<div><div style="font-size:8px;color:var(--muted-2,#6b5a8a);text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px">Planned</div><div style="font-size:14px;font-weight:700;color:var(--amber,#ffb830)">' + sym + totalPlanned.toLocaleString('en',{maximumFractionDigits:0}) + '</div></div>' +
+      '<div><div style="font-size:8px;color:var(--muted-2,#6b5a8a);text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px">Free remaining</div><div style="font-size:14px;font-weight:700;color:' + (remaining<0?'var(--neg,#ff4d6d)':'var(--accent,#39ff9a)') + '">' + sym + remaining.toLocaleString('en',{maximumFractionDigits:0}) + '</div></div>' +
+    '</div>';
+
+  // Rows
+  var rowsHTML = validPlan.map(function(r) {
+    var amt = parseFloat(r.amount) || 0;
+    var pct = available > 0 ? (amt / available * 100) : 0;
+    var pctOfPlanned = totalPlanned > 0 ? (amt / totalPlanned * 100) : 0;
+    return '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">' +
+      '<div style="width:60px;font-size:11px;font-weight:700;color:var(--text,#e0d8f0)">' + (r.ticker || '—') + '</div>' +
+      '<div style="flex:1;height:8px;background:rgba(255,255,255,.05);border-radius:4px;overflow:hidden;position:relative">' +
+        '<div style="width:' + Math.min(100,pctOfPlanned) + '%;height:100%;background:linear-gradient(90deg,rgba(198,120,255,.7),rgba(123,140,255,.7));border-radius:4px"></div>' +
+      '</div>' +
+      '<div style="width:54px;text-align:right;font-size:10px;color:var(--purple,#c678ff);font-weight:600">' + pct.toFixed(1) + '%</div>' +
+      '<div style="width:80px;text-align:right;font-size:11px;font-weight:600">' + sym + amt.toLocaleString('en',{maximumFractionDigits:0}) + '</div>' +
+      (r.note ? '<div style="font-size:9px;color:var(--muted-2,#6b5a8a);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + r.note.replace(/"/g,'') + '">' + r.note + '</div>' : '<div style="width:0"></div>') +
+    '</div>';
+  }).join('');
+
+  el.innerHTML = summaryHTML + rowsHTML;
 }
 
 /* Wire cash-plan-modal backdrop */
