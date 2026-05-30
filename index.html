@@ -1233,7 +1233,7 @@ input[type="text"],input[type="number"],input[type="date"],input[type="time"],in
       <div class="fg"><label>TRY/USD rate</label><input type="number" id="rate-TRY" step="0.001" placeholder="e.g. 32.5"></div>
     </div>
     <div style="display:flex;gap:7px;align-items:center">
-      <button class="btn sec sm" onclick="fetchAlpacaRates()">⟳ Fetch rates from Alpaca</button>
+      <button class="btn sec sm" onclick="fetchAlpacaRates()">⟳ Fetch live rates</button>
       <button class="btn" onclick="saveCurrencySettings()">Save</button>
       <span id="rate-status" style="font-size:10px;color:var(--muted);margin-left:4px"></span>
     </div>
@@ -1528,6 +1528,8 @@ input[type="text"],input[type="number"],input[type="date"],input[type="time"],in
 </div>
 <script>
 
+/* ──
+
 /* ─── CONFIG ─── */
 const API_KEY = 'YOUR_API_KEY_HERE'; // Replace with your Anthropic API key
 
@@ -1571,10 +1573,17 @@ function getClosedPnL(pid){
 }
 function getDailyPnL(pid){const m={};getClosedPnL(pid).forEach(c=>{if(!m[c.date])m[c.date]=0;m[c.date]+=c.pnl;});return m;}
 function getHoldings(pid){
-  const m={};portTrades(pid).forEach(t=>{
+  const m={};
+  portTrades(pid).slice().sort((a,b)=>a.date.localeCompare(b.date)).forEach(t=>{
     const k=t.ticker.toUpperCase();if(!m[k])m[k]={ticker:k,sector:t.sector,qty:0,cost:0};
     if(t.type==='buy'){m[k].qty+=t.qty;m[k].cost+=t.qty*t.price;}
-    else{m[k].qty-=t.qty;m[k].cost-=t.qty*t.price;}
+    else{
+      // Reduce cost proportionally (cost basis), NOT by sell price
+      const sell=Math.min(t.qty,m[k].qty);
+      const ratio=m[k].qty>0?sell/m[k].qty:0;
+      m[k].cost*=(1-ratio);
+      m[k].qty=Math.max(0,m[k].qty-sell);
+    }
   });return Object.values(m).filter(h=>h.qty>0.0001);
 }
 function getTodayStats(pid){
@@ -3283,39 +3292,38 @@ function saveCurrencySettings() {
 }
 async function fetchAlpacaRates() {
   var st = document.getElementById('rate-status');
-  var key = localStorage.getItem('alp_key') || '';
-  var sec = localStorage.getItem('alp_secret') || '';
-  if (!key || !sec) { if(st)st.innerHTML='<span style="color:var(--amber)">Add Alpaca keys first</span>'; return; }
-  if (st) st.innerHTML = '<span style="color:var(--muted)">Fetching…</span>';
-  var pairs = ['EUR/USD','GBP/USD','TRY/USD'];
-  var fetched = 0;
-  for (var i = 0; i < pairs.length; i++) {
-    var pair = pairs[i];
+  if (st) st.innerHTML = '<span style="color:var(--muted)">Fetching live rates…</span>';
+  var ok = false;
+  // Try free currency APIs (no key needed). All rates expressed as units per 1 USD.
+  var apis = [
+    'https://api.frankfurter.app/latest?from=USD&to=EUR,GBP,TRY,CHF,JPY,CAD,AUD',
+    'https://open.er-api.com/v6/latest/USD',
+    'https://api.exchangerate-api.com/v4/latest/USD'
+  ];
+  for (var i = 0; i < apis.length && !ok; i++) {
     try {
-      var r = await fetch('https://data.alpaca.markets/v1beta3/forex/latest?symbols=' + pair, {
-        headers: {'APCA-API-KEY-ID': key, 'APCA-API-SECRET-KEY': sec},
-        signal: AbortSignal.timeout(6000)
-      });
-      if (r.ok) {
-        var d = await r.json();
-        var rates = d.rates || d.data || {};
-        var pairData = rates[pair] || rates[pair.replace('/','')];
-        if (pairData) {
-          var curr = pair.split('/')[0];
-          var rate = pairData.ap || pairData.ask || pairData.mid || pairData.c;
-          if (rate) {
-            CURRENCY_RATES[curr] = 1 / parseFloat(rate); // rates are USD per unit, we store units per USD
-            var el = document.getElementById('rate-'+curr);
-            if (el) el.value = CURRENCY_RATES[curr].toFixed(4);
-            fetched++;
+      var r = await fetch(apis[i], { signal: AbortSignal.timeout(7000) });
+      if (!r.ok) continue;
+      var d = await r.json();
+      var rates = d.rates || d.conversion_rates || null;
+      if (rates) {
+        ['EUR','GBP','TRY','CHF','JPY','CAD','AUD'].forEach(function(c) {
+          if (rates[c]) {
+            CURRENCY_RATES[c] = parseFloat(rates[c]); // units per 1 USD
+            var el = document.getElementById('rate-'+c);
+            if (el) el.value = CURRENCY_RATES[c].toFixed(4);
           }
-        }
+        });
+        CURRENCY_RATES['USD'] = 1;
+        ok = true;
+        // Persist
+        localStorage.setItem('td_currency_rates', JSON.stringify(CURRENCY_RATES));
       }
     } catch(e) {}
   }
-  if (st) st.innerHTML = fetched > 0
-    ? '<span style="color:var(--teal)">✓ Fetched ' + fetched + ' rates</span>'
-    : '<span style="color:var(--amber)">Could not fetch rates — enter manually</span>';
+  if (st) st.innerHTML = ok
+    ? '<span style="color:var(--teal)">✓ Live rates fetched &amp; saved</span>'
+    : '<span style="color:var(--amber)">Could not fetch — enter rates manually below</span>';
 }
 function loadCurrencySettingsUI() {
   loadCurrencyRates();
@@ -3645,20 +3653,37 @@ function _getGroupLabel(ticker) {
    BACKUP / RESTORE SYSTEM
 ════════════════════════════════════════════════════════════ */
 function backupAllData() {
+  var includeKeys = confirm('Include API keys in this backup?\n\nOK = include Alpaca / Groq / Anthropic / GitHub keys (base64-encoded; anyone with the file can read them).\n\nCancel = data only (safer if you share the file).');
   var data = typeof _allData==='function' ? _allData() : {
     version:1, savedAt:Date.now(),
     trades:trades, portfolios:portfolios, targets:targets,
     notes: typeof notes!=='undefined'?notes:[]
   };
+  data._backupDate = new Date().toISOString();
+  if (includeKeys) {
+    var keys = {
+      alp_key:            localStorage.getItem('alp_key') || '',
+      alp_secret:         localStorage.getItem('alp_secret') || '',
+      td_groq_key:        localStorage.getItem('td_groq_key') || '',
+      td_anthropic_key:   localStorage.getItem('td_anthropic_key') || '',
+      td_sync_gist_token: localStorage.getItem('td_sync_gist_token') || '',
+      td_sync_gist_id:    localStorage.getItem('td_sync_gist_id') || '',
+      td_sync_jsonbin_key:localStorage.getItem('td_sync_jsonbin_key') || '',
+      td_sync_jsonbin_id: localStorage.getItem('td_sync_jsonbin_id') || ''
+    };
+    try { data._apiKeys = btoa(JSON.stringify(keys)); } catch(e) {}
+  }
   var json = JSON.stringify(data, null, 2);
-  var filename = 'tradedesk-backup-' + new Date().toISOString().slice(0,10) + '.json';
+  var filename = 'tradedesk-backup-' + new Date().toISOString().slice(0,10) + (includeKeys?'-withkeys':'') + '.json';
   var blob = new Blob([json], {type:'application/json'});
   var url = URL.createObjectURL(blob);
   var a = document.createElement('a');
   a.href = url; a.download = filename;
   document.body.appendChild(a); a.click();
   setTimeout(function(){URL.revokeObjectURL(url);document.body.removeChild(a);},100);
-  alert('✓ Backup saved: ' + filename + '\n\nKeep this file safe. Use "Restore backup" to recover your data.');
+  var st = document.getElementById('backup-status');
+  if (st) st.innerHTML = '<span style="color:var(--teal,#39ff9a)">&check; Saved ' + filename + (includeKeys?' (with API keys)':' (data only)') + '</span>';
+  else alert('Backup saved: ' + filename + (includeKeys ? '\n\nIncludes API keys — keep it private.' : '\n\nData only (no API keys).'));
 }
 
 function restoreFromBackup() {
@@ -4346,17 +4371,21 @@ function renderTrades() {
   var fStrat   = (document.getElementById('tf-filter-strat')  ||{}).value||'';
   var fType    = (document.getElementById('tf-filter-type')   ||{}).value||'';
   var fEmotion = (document.getElementById('tf-filter-emotion')||{}).value||'';
+  var fSession = (document.getElementById('tf-filter-session')||{}).value||'';
   var fFrom    = (document.getElementById('tf-filter-from')   ||{}).value||'';
   var fTo      = (document.getElementById('tf-filter-to')     ||{}).value||'';
-  var fSearch  = ((document.getElementById('tf-filter-search')||{}).value||'').toLowerCase();
+  var fTicker  = ((document.getElementById('tf-filter-ticker')||{}).value||'').toLowerCase().trim();
+  var fNotes   = ((document.getElementById('tf-filter-notes') ||{}).value||'').toLowerCase().trim();
   if (!fStrat) fStrat = (document.getElementById('filter-strat')||{}).value||'';
   var pt = all.filter(function(t) {
     if (fStrat   && t.strategy !== fStrat)   return false;
     if (fType    && t.type     !== fType)    return false;
     if (fEmotion && t.emotion  !== fEmotion) return false;
+    if (fSession && t.session  !== fSession) return false;
     if (fFrom    && t.date     <  fFrom)     return false;
     if (fTo      && t.date     >  fTo)       return false;
-    if (fSearch) { var hay=(t.ticker+' '+(t.notes||'')+' '+(t.strategy||'')).toLowerCase(); if(hay.indexOf(fSearch)===-1)return false; }
+    if (fTicker  && t.ticker.toLowerCase().indexOf(fTicker) === -1) return false;
+    if (fNotes   && (t.notes||'').toLowerCase().indexOf(fNotes) === -1) return false;
     return true;
   });
   var subEl = document.getElementById('trades-sub');
@@ -4376,7 +4405,7 @@ function renderTrades() {
   var mainCurr = typeof getMainCurrency==='function'?getMainCurrency():'USD';
   var hdrCb = bulkMode ? '<th style="padding:7px 8px;width:32px"><input type="checkbox" title="Select all" onchange="(function(cb){document.querySelectorAll(\'[id^=tcb_]\').forEach(function(c){c.checked=cb.checked;var id=c.id.replace(\'tcb_\',\'\');if(cb.checked)_selectedTradeIds.add(id);else _selectedTradeIds.delete(id);});updateBulkDeleteBtn();})(this)"></th>' : '';
   tblEl.innerHTML = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:'+(bulkMode?'980px':'940px')+'"><thead><tr style="background:var(--s2)">'+hdrCb+
-    ['Date','Ticker','Type','Strategy','Session','Emotion','Qty','Price','Curr','SL','TP','Notes',''].map(function(h2,i){return '<th style="font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.7px;padding:7px 8px;text-align:'+(i>=6&&i<12?'right':'left')+';font-weight:400;border-bottom:0.5px solid var(--b1);white-space:nowrap">'+h2+'</th>';}).join('')+
+    ['Date','Ticker','Type','Strategy','Session','Emotion','Qty','Price','Amount','Curr','SL','TP','Notes',''].map(function(h2,i){return '<th style="font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.7px;padding:7px 8px;text-align:'+(i>=6&&i<12?'right':'left')+';font-weight:400;border-bottom:0.5px solid var(--b1);white-space:nowrap">'+h2+'</th>';}).join('')+
     '</tr></thead><tbody>'+
     pt.map(function(t){
       var tradeCurr=t.currency||'USD', diffCurr=tradeCurr!==mainCurr, isSel=selectedIds.has(t.id);
@@ -4389,7 +4418,8 @@ function renderTrades() {
         '<td style="padding:7px 8px;font-size:10px;color:var(--text-2)">'+(t.session||'—')+'</td>'+
         '<td style="padding:7px 8px;color:'+(t.emotion==='Revenge'||t.emotion==='FOMO'?'var(--neg)':'var(--text-2)')+'">'+( t.emotion||'—')+'</td>'+
         '<td style="padding:7px 8px;text-align:right">'+fmt(t.qty,2)+'</td>'+
-        '<td style="padding:7px 8px;text-align:right">'+sym+fmt(t.price)+'</td>'+
+        '<td style="padding:7px 8px;text-align:right">'+sym+fmt(t.price)+'</td>' +
+        '<td style="padding:7px 8px;text-align:right;font-weight:600">' + sym + fmt(t.qty*t.price,2) + '</td>'+
         '<td style="padding:7px 8px;text-align:right"><span style="font-size:9px;color:'+(diffCurr?'var(--info)':'var(--muted)')+'">'+tradeCurr+'</span></td>'+
         '<td style="padding:7px 8px;text-align:right;color:var(--neg)">'+(t.sl?sym+fmt(t.sl):'—')+'</td>'+
         '<td style="padding:7px 8px;text-align:right;color:var(--teal)">'+(t.tp?sym+fmt(t.tp):'—')+'</td>'+
@@ -4877,7 +4907,6 @@ function _renderCashPlanOnDashboard() {
   /* Show saved plan on dashboard */
   setTimeout(_renderCashPlanOnDashboard, 600);
 })();
-
 </script>
 
   <!-- Cash Allocation Planner Modal -->
