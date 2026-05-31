@@ -2903,33 +2903,52 @@ function _updateSyncBar() {
 }
 
 function _allData() {
+  // Always read accounts fresh from localStorage — never trust in-memory state
+  // which may be empty if called before bootApp or after a reload.
+  var accs = [];
+  try { accs = JSON.parse(localStorage.getItem('td_accounts') || '[]'); } catch(e) {}
+  var activeId = localStorage.getItem('td_active_account') || (_accounts && _accounts.length ? _accounts[0].id : null);
+
+  // Merge in-memory accounts with any that are only in localStorage
+  if (_accounts && _accounts.length && !accs.length) accs = _accounts;
+
   var data = {
     version: 3,
     savedAt: Date.now(),
-    accounts: _accounts,
-    activeAccountId: _activeAccountId,
+    accounts: accs,
+    activeAccountId: activeId,
     accountData: {},
-    // App-wide settings (shared across accounts)
     settings: {
-      mainCurrency: localStorage.getItem('td_main_currency') || 'USD',
-      currencyRates: localStorage.getItem('td_currency_rates') || '{}',
-      aiProvider: localStorage.getItem('td_ai_provider') || 'groq',
-      groqModel: localStorage.getItem('td_groq_model') || 'llama-3.3-70b-versatile',
-      theme: localStorage.getItem('td_theme') || 'dark',
-      posGroupMode: localStorage.getItem('pos_group_mode') || 'none',
-      posGroups: localStorage.getItem('td_pos_groups') || '{}',
-      customStrategies: localStorage.getItem('td_custom_strategies') || '[]'
+      mainCurrency:     localStorage.getItem('td_main_currency')       || 'USD',
+      currencyRates:    localStorage.getItem('td_currency_rates')       || '{}',
+      aiProvider:       localStorage.getItem('td_ai_provider')          || 'groq',
+      groqModel:        localStorage.getItem('td_groq_model')           || 'llama-3.3-70b-versatile',
+      theme:            localStorage.getItem('td_theme')                || 'dark',
+      posGroupMode:     localStorage.getItem('pos_group_mode')          || 'none',
+      posGroups:        localStorage.getItem('td_pos_groups')           || '{}',
+      customStrategies: localStorage.getItem('td_custom_strategies')    || '[]'
     }
   };
-  _accounts.forEach(function(a) {
-    data.accountData[a.id] = {
-      ports:   JSON.parse(localStorage.getItem('td_ports_'+a.id)   || '[]'),
-      trades:  JSON.parse(localStorage.getItem('td_trades_'+a.id)  || '[]'),
-      targets: JSON.parse(localStorage.getItem('td_targets_'+a.id) || '{}'),
-      notes:   JSON.parse(localStorage.getItem('td_notes_'+a.id)   || '[]'),
-      cashPlan:JSON.parse(localStorage.getItem('td_cash_plan_'+a.id) || '[]')
-    };
+
+  // Collect accountData — read from localStorage scoped keys
+  accs.forEach(function(a) {
+    var ports, trds, tgts, nts, cp;
+    try { ports = JSON.parse(localStorage.getItem('td_ports_'   + a.id) || '[]'); } catch(e) { ports = []; }
+    try { trds  = JSON.parse(localStorage.getItem('td_trades_'  + a.id) || '[]'); } catch(e) { trds  = []; }
+    try { tgts  = JSON.parse(localStorage.getItem('td_targets_' + a.id) || '{}'); } catch(e) { tgts  = {}; }
+    try { nts   = JSON.parse(localStorage.getItem('td_notes_'   + a.id) || '[]'); } catch(e) { nts   = []; }
+    try { cp    = JSON.parse(localStorage.getItem('td_cash_plan_'+ a.id)|| '[]'); } catch(e) { cp    = []; }
+
+    // Fallback: if scoped trades are empty but this is the active account,
+    // use the in-memory arrays (covers the case where data hasn't been saved yet)
+    if (!trds.length && a.id === activeId && typeof trades !== 'undefined' && trades.length) {
+      trds  = trades;
+      ports = typeof portfolios !== 'undefined' ? portfolios : ports;
+    }
+
+    data.accountData[a.id] = { ports: ports, trades: trds, targets: tgts, notes: nts, cashPlan: cp };
   });
+
   return data;
 }
 
