@@ -1567,18 +1567,32 @@ function getClosedPnL(pid){
   src.slice().sort((a,b)=>a.date.localeCompare(b.date)).forEach(t=>{
     const k=(pid?'':t.portId)+':'+t.ticker;
     if(!m[k])m[k]={qty:0,avg:0};
-    if(t.type==='buy'){m[k].avg=(m[k].qty*m[k].avg+t.qty*t.price)/(m[k].qty+t.qty);m[k].qty+=t.qty;}
-    else{const pnl=(t.price-m[k].avg)*Math.min(t.qty,m[k].qty);res.push({...t,pnl});m[k].qty=Math.max(0,m[k].qty-t.qty);}
+    // Convert to USD for consistent PnL
+    var p2=t.price,cur2=(t.currency||'USD').toUpperCase();
+    if(cur2==='GBX'||cur2==='GBP'){var gr=CURRENCY_RATES['GBP']||0.79;p2=cur2==='GBX'?(t.price/100)/gr:t.price/gr;}
+    else if(cur2!=='USD'){p2=t.price/(CURRENCY_RATES[cur2]||1);}
+    if(t.type==='buy'){m[k].avg=(m[k].qty*m[k].avg+t.qty*p2)/(m[k].qty+t.qty);m[k].qty+=t.qty;}
+    else{const pnl=(p2-m[k].avg)*Math.min(t.qty,m[k].qty);res.push({...t,pnl,priceUSD:p2});m[k].qty=Math.max(0,m[k].qty-t.qty);}
   });return res;
 }
 function getDailyPnL(pid){const m={};getClosedPnL(pid).forEach(c=>{if(!m[c.date])m[c.date]=0;m[c.date]+=c.pnl;});return m;}
 function getHoldings(pid){
   const m={};
   portTrades(pid).slice().sort((a,b)=>a.date.localeCompare(b.date)).forEach(t=>{
-    const k=t.ticker.toUpperCase();if(!m[k])m[k]={ticker:k,sector:t.sector,qty:0,cost:0};
-    if(t.type==='buy'){m[k].qty+=t.qty;m[k].cost+=t.qty*t.price;}
+    const k=t.ticker.toUpperCase();if(!m[k])m[k]={ticker:k,sector:t.sector,qty:0,cost:0,currency:t.currency||'USD'};
+    // Convert trade cost to USD (main currency) for consistent accounting
+    var priceUSD = t.price;
+    var tradeCurr = (t.currency||'USD').toUpperCase();
+    if(tradeCurr==='GBX'||tradeCurr==='GBP'){
+      // GBX = pence, divide by 100 to get GBP, then convert GBP→USD
+      var gbpRate = CURRENCY_RATES['GBP']||0.79; // GBP per 1 USD
+      priceUSD = tradeCurr==='GBX' ? (t.price/100)/gbpRate : t.price/gbpRate;
+    } else if(tradeCurr!=='USD'){
+      var rate = CURRENCY_RATES[tradeCurr]||1;
+      priceUSD = t.price/rate; // convert to USD
+    }
+    if(t.type==='buy'){m[k].qty+=t.qty;m[k].cost+=t.qty*priceUSD;}
     else{
-      // Reduce cost proportionally (cost basis), NOT by sell price
       const sell=Math.min(t.qty,m[k].qty);
       const ratio=m[k].qty>0?sell/m[k].qty:0;
       m[k].cost*=(1-ratio);
@@ -2573,6 +2587,10 @@ function _loadAccounts() {
 function _saveAccountsMeta() {
   localStorage.setItem('td_accounts', JSON.stringify(_accounts));
   localStorage.setItem('td_active_account', _activeAccountId);
+  // Bump the data version on every save — used by sync to detect changes
+  var v = parseInt(localStorage.getItem('td_data_version')||'0');
+  localStorage.setItem('td_data_version', String(v+1));
+  localStorage.setItem('td_last_modified', String(Date.now()));
 }
 
 function _activeAccountObj() {
@@ -2915,6 +2933,8 @@ function _allData() {
   var data = {
     version: 3,
     savedAt: Date.now(),
+    _dataVersion: parseInt(localStorage.getItem('td_data_version')||'0'),
+    _lastModified: parseInt(localStorage.getItem('td_last_modified')||'0'),
     accounts: accs,
     activeAccountId: activeId,
     accountData: {},
@@ -3078,13 +3098,22 @@ async function _gistSync(action, cfg) {
 
   if (action === 'pull' || (action === 'auto' && existingSavedAt > localSavedAt)) {
     if (!existingData) { _setSyncStatus('warn','No cloud data yet — push first'); return; }
+    // Count trades in cloud vs local to detect accidental overwrites
+    var cloudTrades=0, localTrades=0;
+    if(existingData.accountData){Object.values(existingData.accountData).forEach(function(d){if(d.trades)cloudTrades+=d.trades.length;});}
+    var localSnap=_allData();
+    if(localSnap.accountData){Object.values(localSnap.accountData).forEach(function(d){if(d.trades)localTrades+=d.trades.length;});}
+    // Warn only if cloud has significantly FEWER trades than local
+    if(localTrades>0&&cloudTrades<localTrades*0.5){
+      var ok=confirm('Cloud has '+cloudTrades+' trades, you have '+localTrades+' locally.\n\nPull anyway? (A local backup will be saved first)');
+      if(!ok){_setSyncStatus('warn','Pull cancelled — local data kept');return;}
+    }
     // SAFETY: always back up local data before overwriting
     var backupKey = 'td_sync_backup_' + Date.now();
     try {
-      localStorage.setItem(backupKey, JSON.stringify(_allData()));
-      // Keep only last 3 backups
+      localStorage.setItem(backupKey, JSON.stringify(localSnap));
       var bkeys = Object.keys(localStorage).filter(function(k){return k.startsWith('td_sync_backup_');}).sort();
-      while(bkeys.length > 3){ localStorage.removeItem(bkeys.shift()); }
+      while(bkeys.length > 5){ localStorage.removeItem(bkeys.shift()); }
     } catch(e) {}
     _restoreData(existingData);
     _setSyncStatus('ok', 'Pulled · ' + new Date(existingData.savedAt).toLocaleTimeString() + ' (local backup saved)');
@@ -4494,8 +4523,12 @@ async function refreshOpenPositions() {
   var costMap={};
   portTrades(p.id).slice().sort(function(a,b){return a.date.localeCompare(b.date);}).forEach(function(t){
     var k=t.ticker.toUpperCase();
-    if(!costMap[k])costMap[k]={ticker:k,qty:0,cost:0,buys:[],sector:t.sector||''};
-    if(t.type==='buy'){costMap[k].qty+=t.qty;costMap[k].cost+=t.qty*t.price;costMap[k].buys.push({date:t.date,qty:t.qty,price:t.price});}
+    if(!costMap[k])costMap[k]={ticker:k,qty:0,cost:0,buys:[],sector:t.sector||'',currency:t.currency||'USD'};
+    // Convert to USD
+    var pUSD=t.price,tc=(t.currency||'USD').toUpperCase();
+    if(tc==='GBX'||tc==='GBP'){var gr2=CURRENCY_RATES['GBP']||0.79;pUSD=tc==='GBX'?(t.price/100)/gr2:t.price/gr2;}
+    else if(tc!=='USD'){pUSD=t.price/(CURRENCY_RATES[tc]||1);}
+    if(t.type==='buy'){costMap[k].qty+=t.qty;var _pU2=(function(t2){var c2=(t2.currency||"USD").toUpperCase();if(c2==="GBX"||c2==="GBP"){var r2=CURRENCY_RATES["GBP"]||0.79;return c2==="GBX"?(t2.price/100)/r2:t2.price/r2;}if(c2!=="USD")return t2.price/(CURRENCY_RATES[c2]||1);return t2.price;})(t);costMap[k].cost+=t.qty*_pU2;costMap[k].buys.push({date:t.date,qty:t.qty,price:t.price,priceUSD:pUSD,currency:tc});}
     else{var sell=Math.min(t.qty,costMap[k].qty),ratio=costMap[k].qty>0?sell/costMap[k].qty:0;costMap[k].cost*=(1-ratio);costMap[k].qty=Math.max(0,costMap[k].qty-sell);}
   });
   var holdings=Object.values(costMap).filter(function(h){return h.qty>0.001;});
@@ -4524,7 +4557,7 @@ async function refreshOpenPositions() {
     totalValue+=value; totalCost+=h.cost;
     return{h:h,avgCost:avgCost,curPrice:curPrice,dayChg:dayChg,value:value,uPnL:uPnL,uPct:uPct,hasLive:!!liveData};
   });
-  rows.forEach(function(r){r.alloc=totalValue>0?r.value/totalValue*100:0;});
+  rows.forEach(function(r){r.alloc=totalCost>0?r.h.cost/totalCost*100:0;});;
   var posMode=localStorage.getItem('pos_group_mode')||'none';
   var _SM=typeof _SECTOR_MAP!=='undefined'?_SECTOR_MAP:{}, _TM=typeof _THEME_MAP!=='undefined'?_THEME_MAP:{}, _BT=typeof _BETA!=='undefined'?_BETA:{};
   if(posMode==='sector')rows.forEach(function(r){r.h._group=_SM[r.h.ticker]||'Other';});
@@ -4759,25 +4792,9 @@ function toggleTweaks() {
 ══════════════════════════════════════════════════════════ */
 var _cashPlanRows = [];
 
-function openCashPlanModal() {
-  var acc = typeof _activeAccountObj === 'function' ? _activeAccountObj() : null;
-  if (!acc) { alert('No active account'); return; }
 
-  /* Load saved plan */
-  try { _cashPlanRows = JSON.parse(localStorage.getItem('td_cash_plan_' + (typeof _activeAccountId !== 'undefined' ? _activeAccountId : '')) || '[]'); } catch(e) { _cashPlanRows = []; }
-  if (!_cashPlanRows.length) {
-    _cashPlanRows = [{ticker:'', amount:0, note:'', pct:0}];
-  }
 
-  _updateCashPlanSummary();
-  _renderCashPlanRows();
-  document.getElementById('cash-plan-modal').classList.add('open');
-}
 
-function closeCashPlanModal() {
-  var m = document.getElementById('cash-plan-modal');
-  if (m) m.classList.remove('open');
-}
 
 function _getCurrentCashBalance() {
   var acc = typeof _activeAccountObj === 'function' ? _activeAccountObj() : null;
@@ -4791,132 +4808,234 @@ function _getCurrentCashBalance() {
   return Math.max(0, (acc.cash || 0) + realPnL - totalCost);
 }
 
-function _updateCashPlanSummary() {
-  var el = document.getElementById('cash-plan-summary');
-  if (!el) return;
-  var sym = typeof getCurrencySymbol === 'function' ? getCurrencySymbol() : '$';
-  var available = _getCurrentCashBalance();
-  var planned   = _cashPlanRows.reduce(function(s,r){return s+(parseFloat(r.amount)||0);}, 0);
-  var remaining = available - planned;
-  var warnEl = document.getElementById('cash-plan-warning');
 
-  el.innerHTML =
-    '<div><div style="font-size:9px;color:var(--muted-2,#6b5a8a);margin-bottom:3px">Available cash</div><div style="font-size:15px;font-weight:700;color:var(--blue,#7b8cff)">' + sym + Math.max(0,available).toLocaleString('en',{maximumFractionDigits:0}) + '</div></div>' +
-    '<div><div style="font-size:9px;color:var(--muted-2,#6b5a8a);margin-bottom:3px">Planned to invest</div><div style="font-size:15px;font-weight:700;color:var(--amber,#ffb830)">' + sym + planned.toLocaleString('en',{maximumFractionDigits:0}) + '</div></div>' +
-    '<div><div style="font-size:9px;color:var(--muted-2,#6b5a8a);margin-bottom:3px">Remaining free</div><div style="font-size:15px;font-weight:700;color:' + (remaining<0?'var(--neg,#ff4d6d)':'var(--accent,#39ff9a)') + '">' + sym + remaining.toLocaleString('en',{maximumFractionDigits:0}) + '</div></div>';
 
-  if (warnEl) {
-    warnEl.style.display = remaining < 0 ? 'block' : 'none';
-    warnEl.textContent   = '⚠ Planned amount exceeds available cash by ' + sym + Math.abs(remaining).toLocaleString('en',{maximumFractionDigits:0});
-  }
-}
 
-function _renderCashPlanRows() {
-  var container = document.getElementById('cash-plan-rows');
-  if (!container) return;
-  var sym = typeof getCurrencySymbol === 'function' ? getCurrencySymbol() : '$';
-  var available = _getCurrentCashBalance() || 1;
 
-  container.innerHTML = _cashPlanRows.map(function(row, i) {
-    var pct = available > 0 ? ((parseFloat(row.amount)||0) / available * 100).toFixed(1) : '0.0';
-    return '<div style="display:grid;grid-template-columns:90px 100px 60px 1fr 28px;gap:6px;align-items:center;margin-bottom:7px">' +
-      '<input value="' + (row.ticker||'') + '" placeholder="Ticker" oninput="_planRowUpdate(' + i + ',\'ticker\',this.value)" style="background:var(--surface-2);border:0.5px solid var(--border);border-radius:4px;padding:5px 8px;color:var(--text,#e0d8f0);font-family:var(--mono);font-size:10px;outline:none;text-transform:uppercase;width:100%">' +
-      '<div style="position:relative"><span style="position:absolute;left:7px;top:50%;transform:translateY(-50%);font-size:10px;color:var(--muted-2)">' + sym + '</span><input type="number" value="' + (row.amount||'') + '" placeholder="Amount" oninput="_planRowUpdate(' + i + ',\'amount\',this.value)" style="background:var(--surface-2);border:0.5px solid var(--border);border-radius:4px;padding:5px 8px 5px 18px;color:var(--text,#e0d8f0);font-family:var(--mono);font-size:10px;outline:none;width:100%"></div>' +
-      '<div style="font-size:10px;font-weight:600;color:var(--accent);text-align:center">' + pct + '%</div>' +
-      '<input value="' + (row.note||'') + '" placeholder="Note (optional)" oninput="_planRowUpdate(' + i + ',\'note\',this.value)" style="background:var(--surface-2);border:0.5px solid var(--border);border-radius:4px;padding:5px 8px;color:var(--text,#e0d8f0);font-family:var(--mono);font-size:10px;outline:none;width:100%">' +
-      '<button onclick="_removePlanRow(' + i + ')" style="background:rgba(255,77,109,.15);border:none;color:#ff4d6d;width:26px;height:26px;border-radius:4px;cursor:pointer;font-size:12px;line-height:1">✕</button>' +
-    '</div>';
-  }).join('') +
-  '<div style="font-size:8px;color:var(--muted-2);margin-top:4px;text-transform:uppercase;letter-spacing:.7px">Ticker — Amount — % of cash — Note</div>';
-}
 
-function _planRowUpdate(i, field, val) {
-  if (!_cashPlanRows[i]) return;
-  _cashPlanRows[i][field] = field === 'amount' ? parseFloat(val)||0 : val;
-  _updateCashPlanSummary();
-  /* Update % display inline without full re-render */
-  var rows = document.getElementById('cash-plan-rows');
-  if (rows) {
-    var available = _getCurrentCashBalance() || 1;
-    var pctEls = rows.querySelectorAll('div[style*="text-align:center"]');
-    _cashPlanRows.forEach(function(row, idx) {
-      var pct = ((parseFloat(row.amount)||0) / available * 100).toFixed(1);
-      if (pctEls[idx]) pctEls[idx].textContent = pct + '%';
+
+
+
+
+
+
+
+
+
+
+/* ══════════════════════════════════════════════════════════
+   CASH ALLOCATION PLANNER — hierarchical groups + sub-targets
+══════════════════════════════════════════════════════════ */
+/*
+  Plan structure (saved as JSON array):
+  [
+    { id:'g1', label:'AI Hardware', amount:1500, note:'', subs:[
+      { id:'s1', ticker:'NVDA', amount:600, note:'Core' },
+      { id:'s2', ticker:'AMD',  amount:400, note:'' },
+      { id:'s3', ticker:'SMCI', amount:500, note:'Add on dip' }
+    ]},
+    { id:'g2', label:'Fintech', amount:500, note:'', subs:[] }
+  ]
+*/
+
+function _cpId() { return 'cp_'+Date.now()+'_'+Math.random().toString(36).slice(2,5); }
+
+function openCashPlanModal() {
+  var key = 'td_cash_plan_' + (_activeAccountId||'');
+  try { _cashPlanRows = JSON.parse(localStorage.getItem(key)||'[]'); } catch(e) { _cashPlanRows=[]; }
+  // Migrate old flat format to new group format
+  if(_cashPlanRows.length && !_cashPlanRows[0].hasOwnProperty('subs')){
+    _cashPlanRows = _cashPlanRows.map(function(r){
+      return {id:_cpId(),label:r.ticker||r.label||'Group',amount:parseFloat(r.amount)||0,note:r.note||'',subs:[]};
     });
   }
+  if(!_cashPlanRows.length) _cashPlanRows=[{id:_cpId(),label:'',amount:0,note:'',subs:[]}];
+  _updateCashPlanSummary();
+  _renderCashPlanRows();
+  document.getElementById('cash-plan-modal').classList.add('open');
 }
 
-function _removePlanRow(i) {
-  _cashPlanRows.splice(i, 1);
+function closeCashPlanModal(){
+  var m=document.getElementById('cash-plan-modal');
+  if(m) m.classList.remove('open');
+}
+
+function addPlanGroup(){
+  _cashPlanRows.push({id:_cpId(),label:'',amount:0,note:'',subs:[]});
+  _renderCashPlanRows();
+}
+
+function _addSubRow(gIdx){
+  if(!_cashPlanRows[gIdx]) return;
+  _cashPlanRows[gIdx].subs.push({id:_cpId(),ticker:'',amount:0,note:''});
+  _renderCashPlanRows();
+}
+
+function _removePlanGroup(gIdx){
+  _cashPlanRows.splice(gIdx,1);
   _renderCashPlanRows();
   _updateCashPlanSummary();
 }
 
-function addPlanRow() {
-  _cashPlanRows.push({ticker:'', amount:0, note:'', pct:0});
-  _renderCashPlanRows();
-}
-
-function clearPlanRows() {
-  _cashPlanRows = [];
+function _removePlanSub(gIdx,sIdx){
+  if(!_cashPlanRows[gIdx]) return;
+  _cashPlanRows[gIdx].subs.splice(sIdx,1);
   _renderCashPlanRows();
   _updateCashPlanSummary();
 }
 
-function saveCashPlan() {
-  var key = 'td_cash_plan_' + (typeof _activeAccountId !== 'undefined' ? _activeAccountId : '');
-  localStorage.setItem(key, JSON.stringify(_cashPlanRows));
-  /* Show plan on dashboard */
+function _updatePlanField(gIdx,field,val,sIdx){
+  if(sIdx===undefined){
+    if(_cashPlanRows[gIdx]) _cashPlanRows[gIdx][field]=field==='amount'?parseFloat(val)||0:val;
+  } else {
+    if(_cashPlanRows[gIdx]&&_cashPlanRows[gIdx].subs[sIdx]) _cashPlanRows[gIdx].subs[sIdx][field]=field==='amount'?parseFloat(val)||0:val;
+  }
+  _updateCashPlanSummary();
+}
+
+function _renderCashPlanRows(){
+  var container=document.getElementById('cash-plan-rows');
+  if(!container) return;
+  var sym=typeof getCurrencySymbol==='function'?getCurrencySymbol():'$';
+  var available=_getCurrentCashBalance()||1;
+  var inp=function(ph,val,onin,w){return '<input type="text" placeholder="'+ph+'" value="'+(val||'')+'" oninput="'+onin+'" style="background:var(--surface-2);border:0.5px solid var(--border);border-radius:4px;padding:5px 8px;color:var(--text);font-family:var(--mono);font-size:10px;outline:none;width:'+(w||'100%')+'">';};
+  var num=function(val,onin){return '<input type="number" value="'+(val||'')+'" placeholder="0" oninput="'+onin+'" style="background:var(--surface-2);border:0.5px solid var(--border);border-radius:4px;padding:5px 8px 5px 16px;color:var(--text);font-family:var(--mono);font-size:10px;outline:none;width:100%">';};
+
+  container.innerHTML = _cashPlanRows.map(function(g,gi){
+    var subTotal=g.subs.reduce(function(s,x){return s+(parseFloat(x.amount)||0);},0);
+    var gAmt=parseFloat(g.amount)||0;
+    var gPct=available>0?(gAmt/available*100).toFixed(1):0;
+    var subWarn=g.subs.length&&subTotal>gAmt+0.01?'<span style="color:#ffb830;font-size:9px;margin-left:6px">⚠ subs ('+sym+subTotal.toFixed(0)+') exceed group</span>':'';
+    var subRows=g.subs.map(function(s,si){
+      var sPct=gAmt>0?((parseFloat(s.amount)||0)/gAmt*100).toFixed(0):0;
+      var sAmt=parseFloat(s.amount)||0;
+      var sPctAll=available>0?(sAmt/available*100).toFixed(1):'0';
+      var mkInp=function(ph,val,f,isNum){
+        var qf=f.replace(/'/g,'');
+        var cb='_updatePlanField('+gi+',\x27'+qf+'\x27,this.value,'+si+')';
+        var st='background:var(--surface-2);border:0.5px solid var(--border);border-radius:4px;padding:5px 8px;color:var(--text);font-family:var(--mono);font-size:10px;outline:none;width:100%';
+        if(isNum)return '<div style="position:relative"><span style="position:absolute;left:7px;top:50%;transform:translateY(-50%);font-size:10px;color:var(--muted-2)">'+sym+'</span><input type="number" value="'+(val||'')+'" placeholder="0" oninput="'+cb+'" style="'+st+';padding-left:16px"></div>';
+        return '<input type="text" placeholder="'+ph+'" value="'+(val||'')+'" oninput="'+cb+'" style="'+st+'">';
+      };
+      return '<div style="display:grid;grid-template-columns:20px 90px 100px 40px 1fr 26px;gap:5px;align-items:center;padding:3px 0 3px 24px">'+
+        '<span style="color:var(--muted-2);font-size:10px">&#8627;</span>'+
+        mkInp('TICKER',s.ticker,'ticker')+
+        mkInp('',s.amount,'amount',true)+
+        '<div style="text-align:center;font-size:10px;color:var(--blue,#7b8cff);font-weight:600">'+sPctAll+'%</div>'+
+        mkInp('Note',s.note,'note')+
+        '<button onclick="_removePlanSub('+gi+','+si+')" style="background:rgba(255,77,109,.15);border:none;color:#ff4d6d;width:22px;height:22px;border-radius:4px;cursor:pointer;font-size:11px">&#10005;</button>'+
+      '</div>';
+    }).join('');
+
+    return '<div style="background:rgba(255,255,255,.02);border:0.5px solid var(--border);border-radius:7px;margin-bottom:10px;overflow:hidden">'+
+      '<div style="display:grid;grid-template-columns:1fr 110px 44px 1fr 56px 28px;gap:6px;align-items:center;padding:8px 10px;background:rgba(198,120,255,.07)">'+
+        inp('Group label (e.g. AI Hardware)',g.label,'_updatePlanField('+gi+',\'label\',this.value)')+
+        '<div style="position:relative"><span style="position:absolute;left:7px;top:50%;transform:translateY(-50%);font-size:10px;color:var(--muted-2)">'+sym+'</span>'+num(gAmt,'_updatePlanField('+gi+',\'amount\',this.value)')+'</div>'+
+        '<div style="text-align:center;font-size:11px;font-weight:700;color:var(--purple,#c678ff)">'+gPct+'%</div>'+
+        inp('Note',g.note,'_updatePlanField('+gi+',\'note\',this.value)')+
+        '<button onclick="_addSubRow('+gi+')" style="background:rgba(57,255,154,.1);border:0.5px solid rgba(57,255,154,.3);color:var(--accent);padding:3px 8px;border-radius:4px;font-size:9px;cursor:pointer;white-space:nowrap">+ Sub</button>'+
+        '<button onclick="_removePlanGroup('+gi+')" style="background:rgba(255,77,109,.15);border:none;color:#ff4d6d;width:24px;height:24px;border-radius:4px;cursor:pointer">✕</button>'+
+      '</div>'+
+      subRows+
+      (g.subs.length?'<div style="padding:3px 10px 6px 28px;font-size:9px;color:var(--muted-2)">Subs: '+sym+subTotal.toFixed(0)+' of '+sym+gAmt.toFixed(0)+subWarn+'</div>':'')+
+    '</div>';
+  }).join('');
+}
+
+function _updateCashPlanSummary(){
+  var el=document.getElementById('cash-plan-summary');
+  if(!el)return;
+  var sym=typeof getCurrencySymbol==='function'?getCurrencySymbol():'$';
+  var available=_getCurrentCashBalance();
+  var planned=(_cashPlanRows||[]).reduce(function(s,r){return s+(parseFloat(r.amount)||0);},0);
+  var remaining=available-planned;
+  var warnEl=document.getElementById('cash-plan-warning');
+  el.innerHTML=
+    '<div><div style="font-size:8px;color:var(--muted-2);text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px">Available cash</div><div style="font-size:15px;font-weight:700;color:var(--blue,#7b8cff)">'+sym+Math.max(0,available).toLocaleString('en',{maximumFractionDigits:0})+'</div></div>'+
+    '<div><div style="font-size:8px;color:var(--muted-2);text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px">Planned</div><div style="font-size:15px;font-weight:700;color:var(--amber,#ffb830)">'+sym+planned.toLocaleString('en',{maximumFractionDigits:0})+'</div></div>'+
+    '<div><div style="font-size:8px;color:var(--muted-2);text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px">Remaining</div><div style="font-size:15px;font-weight:700;color:'+(remaining<0?'var(--neg,#ff4d6d)':'var(--accent,#39ff9a)')+'">'+sym+remaining.toLocaleString('en',{maximumFractionDigits:0})+'</div></div>';
+  if(warnEl){warnEl.style.display=remaining<0?'block':'none';warnEl.textContent='⚠ Planned exceeds cash by '+sym+Math.abs(remaining).toLocaleString('en',{maximumFractionDigits:0});}
+}
+
+function clearPlanRows(){
+  if(!confirm('Clear all plan groups?'))return;
+  _cashPlanRows=[];
+  _renderCashPlanRows();
+  _updateCashPlanSummary();
+}
+
+function saveCashPlan(){
+  var key='td_cash_plan_'+(_activeAccountId||'');
+  localStorage.setItem(key,JSON.stringify(_cashPlanRows));
   _renderCashPlanOnDashboard();
   closeCashPlanModal();
 }
 
-function _renderCashPlanOnDashboard() {
-  var el = document.getElementById('cash-plan-display');
-  if (!el) return;
-  var key = 'td_cash_plan_' + (typeof _activeAccountId !== 'undefined' && _activeAccountId ? _activeAccountId : '');
-  var plan = [];
-  try { plan = JSON.parse(localStorage.getItem(key) || '[]'); } catch(e) {}
-  var validPlan = plan.filter(function(r){return r.ticker || (parseFloat(r.amount)||0) > 0;});
-  var sym = typeof getCurrencySymbol === 'function' ? getCurrencySymbol() : '$';
-  var available = typeof _getCurrentCashBalance === 'function' ? _getCurrentCashBalance() : 0;
+function addPlanRow(){addPlanGroup();}  /* backwards compat */
 
-  if (!validPlan.length) {
-    el.innerHTML = '<div style="text-align:center;padding:18px 12px;color:var(--muted-2,#6b5a8a);font-size:11px;line-height:1.7">' +
-      'No allocation plan yet.<br>' +
-      '<span style="font-size:10px">Plan how to deploy your ' + sym + Math.max(0,available).toLocaleString('en',{maximumFractionDigits:0}) + ' available cash across future positions.</span><br>' +
-      '<button class="btn" style="margin-top:10px;background:rgba(198,120,255,.15);border:0.5px solid rgba(198,120,255,.35);color:var(--purple,#c678ff)" onclick="openCashPlanModal()">+ Create allocation plan</button>' +
-    '</div>';
+function _renderCashPlanOnDashboard(){
+  var el=document.getElementById('cash-plan-display');if(!el)return;
+  var key='td_cash_plan_'+(typeof _activeAccountId!=='undefined'&&_activeAccountId?_activeAccountId:'');
+  var plan=[];try{plan=JSON.parse(localStorage.getItem(key)||'[]');}catch(e){}
+  var sym=typeof getCurrencySymbol==='function'?getCurrencySymbol():'$';
+  var available=typeof _getCurrentCashBalance==='function'?_getCurrentCashBalance():0;
+  // Handle both old flat format and new group format
+  var groups=plan.map(function(r){
+    if(r.subs!==undefined)return r;
+    return{id:r.id||'g',label:r.ticker||r.label||'',amount:parseFloat(r.amount)||0,note:r.note||'',subs:[]};
+  }).filter(function(r){return r.label||(r.amount>0);});
+
+  if(!groups.length){
+    el.innerHTML='<div style="text-align:center;padding:18px 12px;color:var(--muted-2);font-size:11px;line-height:1.7">No allocation plan yet.<br><span style="font-size:10px">Plan how to deploy your '+sym+Math.max(0,available).toLocaleString('en',{maximumFractionDigits:0})+' available cash.</span><br><button class="btn" style="margin-top:10px;background:rgba(198,120,255,.15);border:0.5px solid rgba(198,120,255,.35);color:var(--purple,#c678ff)" onclick="openCashPlanModal()">+ Create plan</button></div>';
     return;
   }
 
-  // Summary row
-  var totalPlanned = validPlan.reduce(function(s,r){return s + (parseFloat(r.amount)||0);},0);
-  var remaining = available - totalPlanned;
-  var summaryHTML =
-    '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;padding:10px;background:var(--surface-2,rgba(255,255,255,.02));border-radius:6px">' +
-      '<div><div style="font-size:8px;color:var(--muted-2,#6b5a8a);text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px">Available</div><div style="font-size:14px;font-weight:700;color:var(--blue,#7b8cff)">' + sym + Math.max(0,available).toLocaleString('en',{maximumFractionDigits:0}) + '</div></div>' +
-      '<div><div style="font-size:8px;color:var(--muted-2,#6b5a8a);text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px">Planned</div><div style="font-size:14px;font-weight:700;color:var(--amber,#ffb830)">' + sym + totalPlanned.toLocaleString('en',{maximumFractionDigits:0}) + '</div></div>' +
-      '<div><div style="font-size:8px;color:var(--muted-2,#6b5a8a);text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px">Free remaining</div><div style="font-size:14px;font-weight:700;color:' + (remaining<0?'var(--neg,#ff4d6d)':'var(--accent,#39ff9a)') + '">' + sym + remaining.toLocaleString('en',{maximumFractionDigits:0}) + '</div></div>' +
-    '</div>';
+  var totalPlanned=groups.reduce(function(s,r){return s+(parseFloat(r.amount)||0);},0);
+  var remaining=available-totalPlanned;
+  var sumHTML='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;padding:9px;background:rgba(255,255,255,.02);border-radius:6px">'+
+    '<div><div style="font-size:8px;color:var(--muted-2);text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px">Available</div><div style="font-size:14px;font-weight:700;color:var(--blue,#7b8cff)">'+sym+Math.max(0,available).toLocaleString('en',{maximumFractionDigits:0})+'</div></div>'+
+    '<div><div style="font-size:8px;color:var(--muted-2);text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px">Planned</div><div style="font-size:14px;font-weight:700;color:var(--amber,#ffb830)">'+sym+totalPlanned.toLocaleString('en',{maximumFractionDigits:0})+'</div></div>'+
+    '<div><div style="font-size:8px;color:var(--muted-2);text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px">Free</div><div style="font-size:14px;font-weight:700;color:'+(remaining<0?'var(--neg,#ff4d6d)':'var(--accent,#39ff9a)')+'">'+sym+remaining.toLocaleString('en',{maximumFractionDigits:0})+'</div></div>'+
+  '</div>';
 
-  // Rows
-  var rowsHTML = validPlan.map(function(r) {
-    var amt = parseFloat(r.amount) || 0;
-    var pct = available > 0 ? (amt / available * 100) : 0;
-    var pctOfPlanned = totalPlanned > 0 ? (amt / totalPlanned * 100) : 0;
-    return '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">' +
-      '<div style="width:60px;font-size:11px;font-weight:700;color:var(--text,#e0d8f0)">' + (r.ticker || '—') + '</div>' +
-      '<div style="flex:1;height:8px;background:rgba(255,255,255,.05);border-radius:4px;overflow:hidden;position:relative">' +
-        '<div style="width:' + Math.min(100,pctOfPlanned) + '%;height:100%;background:linear-gradient(90deg,rgba(198,120,255,.7),rgba(123,140,255,.7));border-radius:4px"></div>' +
-      '</div>' +
-      '<div style="width:54px;text-align:right;font-size:10px;color:var(--purple,#c678ff);font-weight:600">' + pct.toFixed(1) + '%</div>' +
-      '<div style="width:80px;text-align:right;font-size:11px;font-weight:600">' + sym + amt.toLocaleString('en',{maximumFractionDigits:0}) + '</div>' +
-      (r.note ? '<div style="font-size:9px;color:var(--muted-2,#6b5a8a);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + r.note.replace(/"/g,'') + '">' + r.note + '</div>' : '<div style="width:0"></div>') +
+  var rowsHTML=groups.map(function(g){
+    var gAmt=parseFloat(g.amount)||0;
+    var pct=available>0?(gAmt/available*100):0;
+    var pctOfPlan=totalPlanned>0?(gAmt/totalPlanned*100):0;
+    var subHTML='';
+    if(g.subs&&g.subs.length){
+      subHTML='<div style="padding:4px 0 4px 16px">'+
+        g.subs.map(function(s){
+          var sAmt=parseFloat(s.amount)||0;
+          var sPctGrp=gAmt>0?(sAmt/gAmt*100):0;
+          var sPctAll=available>0?(sAmt/available*100):0;
+          return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">'+
+            '<span style="color:var(--muted-2);font-size:9px;width:10px">↳</span>'+
+            '<span style="width:54px;font-size:10px;font-weight:600">'+s.ticker+'</span>'+
+            '<div style="flex:1;height:5px;background:rgba(255,255,255,.05);border-radius:3px;overflow:hidden">'+
+              '<div style="width:'+Math.min(100,sPctGrp)+'%;height:100%;background:rgba(123,140,255,.6);border-radius:3px"></div>'+
+            '</div>'+
+            '<span style="width:32px;text-align:right;font-size:9px;color:var(--blue,#7b8cff)">'+sPctAll.toFixed(1)+'%</span>'+
+            '<span style="width:56px;text-align:right;font-size:10px">'+sym+sAmt.toLocaleString('en',{maximumFractionDigits:0})+'</span>'+
+            (s.note?'<span style="font-size:9px;color:var(--muted-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100px">'+s.note+'</span>':'')+
+          '</div>';
+        }).join('')+
+      '</div>';
+    }
+    return '<div style="margin-bottom:10px">'+
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">'+
+        '<div style="width:120px;font-size:11px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+g.label+'</div>'+
+        '<div style="flex:1;height:8px;background:rgba(255,255,255,.05);border-radius:4px;overflow:hidden">'+
+          '<div style="width:'+Math.min(100,pctOfPlan)+'%;height:100%;background:linear-gradient(90deg,rgba(198,120,255,.7),rgba(123,140,255,.6));border-radius:4px"></div>'+
+        '</div>'+
+        '<div style="width:38px;text-align:right;font-size:10px;color:var(--purple,#c678ff);font-weight:600">'+pct.toFixed(1)+'%</div>'+
+        '<div style="width:68px;text-align:right;font-size:11px;font-weight:700">'+sym+gAmt.toLocaleString('en',{maximumFractionDigits:0})+'</div>'+
+        (g.note?'<div style="font-size:9px;color:var(--muted-2);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+g.note+'</div>':'')+
+      '</div>'+
+      subHTML+
     '</div>';
   }).join('');
-
-  el.innerHTML = summaryHTML + rowsHTML;
+  el.innerHTML=sumHTML+rowsHTML;
 }
 
 /* Wire cash-plan-modal backdrop */
@@ -4930,14 +5049,17 @@ function _renderCashPlanOnDashboard() {
 
   <!-- Cash Allocation Planner Modal -->
   <div class="modal-bg" id="cash-plan-modal">
-    <div class="modal" style="width:480px;max-width:96vw">
+    <div class="modal" style="width:560px;max-width:97vw;max-height:90vh;overflow-y:auto">
       <h2>&#128200; Cash Allocation Planner</h2>
       <div id="cash-plan-summary" style="background:var(--surface-2);border:0.5px solid var(--border);border-radius:7px;padding:11px 13px;margin-bottom:13px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:10px"></div>
-      <div class="box-t" style="margin-bottom:8px">Plan allocations</div>
+      <div style="font-size:9px;color:var(--muted-2);margin-bottom:10px;line-height:1.6">
+        Add a budget group (e.g. "AI Hardware"), set a total amount, then add sub-targets inside it.
+        Each sub-target is a ticker or label with its own slice of the group budget.
+      </div>
       <div id="cash-plan-rows"></div>
-      <div style="display:flex;gap:8px;margin-top:10px">
-        <button class="btn sec sm" onclick="addPlanRow()">+ Add ticker</button>
-        <button class="btn sec sm" onclick="clearPlanRows()">Clear</button>
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+        <button class="btn sec sm" onclick="addPlanGroup()">+ Add group</button>
+        <button class="btn sec sm" onclick="clearPlanRows()">Clear all</button>
       </div>
       <div id="cash-plan-warning" style="margin-top:8px;font-size:10px;color:#ffb830;display:none"></div>
       <div class="mact" style="margin-top:12px">
